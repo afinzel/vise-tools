@@ -1,4 +1,5 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "vise-tools",
   "owner": { "name": "afinzel" },
   "metadata": {
@@ -8,7 +9,7 @@
   "plugins": [
     {
       "name": "buildvise",
-      "source": "buildvise",
+      "source": "./plugins/buildvise",
       "description": "Build subagent with structured diagnostics (10-50x token reduction)",
       "version": "0.1.0",
       "keywords": ["build", "test", "lint", "diagnostics"]
