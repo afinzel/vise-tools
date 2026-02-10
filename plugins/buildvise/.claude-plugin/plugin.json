@@ -1,0 +1,8 @@
+{
+  "name": "buildvise",
+  "description": "Structured build, test, and lint diagnostics. Provides a build subagent that Claude spawns on demand.",
+  "version": "0.1.0",
+  "author": { "name": "afinzel" },
+  "homepage": "https://github.com/afinzel/buildvise",
+  "license": "MIT"
+}

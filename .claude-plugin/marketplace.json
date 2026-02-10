@@ -1,0 +1,17 @@
+{
+  "name": "vise-tools",
+  "owner": { "name": "afinzel" },
+  "metadata": {
+    "description": "AI-powered development tools for Claude Code",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "buildvise",
+      "source": "buildvise",
+      "description": "Build subagent with structured diagnostics (10-50x token reduction)",
+      "version": "0.1.0",
+      "keywords": ["build", "test", "lint", "diagnostics"]
+    }
+  ]
+}
