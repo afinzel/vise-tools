@@ -1,0 +1,6 @@
+{
+  "buildvise": {
+    "command": "npx",
+    "args": ["-y", "buildvise", "mcp"]
+  }
+}

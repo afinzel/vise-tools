@@ -10,9 +10,9 @@
     {
       "name": "buildvise",
       "source": "./plugins/buildvise",
-      "description": "Build subagent with structured diagnostics (10-50x token reduction)",
-      "version": "0.1.0",
-      "keywords": ["build", "test", "lint", "diagnostics"]
+      "description": "Single MCP tool for structured build/test/lint diagnostics (10-50x token reduction)",
+      "version": "0.2.0",
+      "keywords": ["build", "test", "lint", "diagnostics", "mcp"]
     }
   ]
 }
