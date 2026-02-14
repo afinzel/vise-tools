@@ -1,40 +1,30 @@
 # Buildvise Plugin
 
-Build, test, and lint subagent for Claude Code with structured diagnostics.
+Single MCP tool for structured build, test, and lint diagnostics with 10-50x token reduction.
 
 ## What It Does
 
-Buildvise provides a **build subagent** that Claude spawns on demand. The subagent has access to build/test/lint tools via an MCP server, but those tool schemas only load in the subagent's context — keeping your main conversation clean.
+Buildvise registers a single `build` MCP tool that handles all operations — build, test, lint, log retrieval, and tool listing — through one endpoint. Instead of raw console output (2,000-10,000+ tokens), you get structured diagnostics (50-200 tokens).
 
-Instead of raw console output (2,000-10,000+ tokens), you get structured diagnostics (50-200 tokens):
+### Why Single Tool MCP
 
-```
-Main conversation (zero build-tool overhead)
-    |
-    └── Claude spawns "build" subagent when needed
-         |
-         ├── Subagent has buildvise MCP server
-         ├── Calls dotnet_build, npm_test, eslint_lint, etc.
-         └── Returns structured summary to main conversation
-```
+| Approach | Token Cost per Invocation |
+|----------|--------------------------|
+| Subagent | ~20,000-30,000 |
+| Many MCP tools | ~2,000-5,000 |
+| **Single MCP tool** | **~200** |
 
-## Supported Tools
+## The `build` Tool
 
-| Tool | Description |
-|------|-------------|
-| `dotnet_build` | Build .NET projects |
-| `dotnet_test` | Run .NET tests |
-| `npm_install` | Install npm packages |
-| `npm_build` | Run npm build script |
-| `npm_test` | Run npm test script |
-| `npm_run` | Run npm scripts |
-| `pnpm_install` | Install pnpm packages |
-| `pnpm_build` | Run pnpm build script |
-| `pnpm_test` | Run pnpm test script |
-| `pnpm_run` | Run pnpm scripts |
-| `eslint_lint` | Run ESLint on files |
-| `run_raw` | Get raw log output by byte offset |
-| `run_logRange` | Get log lines by line number |
+| Action | Description | Required Params |
+|--------|-------------|-----------------|
+| `exec` | Run a build/test/lint tool | `tool` |
+| `log` | View log lines from a previous run | `runId` |
+| `list` | Show available tools | (none) |
+
+### Available Tools (for `exec`)
+
+`dotnet.build`, `dotnet.test`, `npm.install`, `npm.build`, `npm.test`, `npm.run`, `pnpm.install`, `pnpm.build`, `pnpm.test`, `pnpm.run`, `eslint.lint`
 
 ## Installation
 
