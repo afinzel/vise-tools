@@ -23,6 +23,18 @@ Resolve the OS temp directory and write a uniquely named file there:
 
 Use a descriptive, timestamped filename, e.g. `handoff-<short-topic>-YYYYMMDD-HHMMSS.md`. Print the absolute path when done so the user can hand it off.
 
+## Final output: paste-ready prompt
+
+After writing the file, end your response with a fenced code block containing a prompt the user can copy and paste into a fresh Claude session. Put nothing after the code block so it is easy to select. Use this template, with the real absolute path substituted in:
+
+````
+```
+Read the handoff document at <ABSOLUTE_PATH> and continue the work described in it. Start by summarising the current status and your planned next steps, then proceed.
+```
+````
+
+If the user gave arguments describing the next session's focus, append a sentence reflecting that focus to the pasteable prompt.
+
 ## Document structure
 
 Produce a single Markdown file with these sections:
