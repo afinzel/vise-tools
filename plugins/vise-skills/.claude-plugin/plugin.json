@@ -1,0 +1,7 @@
+{
+  "name": "vise-skills",
+  "description": "Skills for Claude Code development workflows.",
+  "version": "0.1.0",
+  "author": { "name": "afinzel" },
+  "license": "MIT"
+}
