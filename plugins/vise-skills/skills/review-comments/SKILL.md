@@ -64,18 +64,13 @@ If there are zero unresolved threads and no general feedback, say so plainly and
 
 ## 3. Present each comment raw, with a clickable link
 
-For every unresolved thread, output the reviewer's words **verbatim** as a Markdown blockquote — do not summarise, soften, or reinterpret. Use this shape:
+For every unresolved thread, output the reviewer's words **verbatim** — do not summarise, soften, or reinterpret. **Render using `output-template.md`** (in this skill's directory): it defines the per-comment block, the three groups (✅ Trivial / 💬 Discuss / ⚠️ Push back), and the terminal-CLI rendering rules. The essentials, which the template covers in full:
 
-```
-### [N] `path/to/file.ext:LINE`  ·  @author  ·  [view on GitHub](COMMENT_URL)
-
-> <the comment body, exactly as written>
-```
-
-- The `view on GitHub` link is the comment's `url` field — it opens the PR anchored to that comment. Always include it; it is the clickable link the user wants.
-- For `LINE`, use `line`; if it is `null` (common on outdated or moved code), fall back to `originalLine`, and if that is also null, drop the `:LINE` suffix rather than printing `:null`.
+- The visible link is a **bare URL on its own line** pointing at the PR Files-changed diff anchor for the code line — `https://github.com/<owner>/<repo>/pull/<pr>/files#diff-<sha256(path)>R<line>` (hash = `printf "%s" "<path>" | sha256sum`). A `[text](url)` markdown link renders as dead text in the terminal CLI; only raw URLs auto-link. Keep each thread's GraphQL `url` internally for replying/resolving in step 5.
+- The quote goes in a **fenced code block**, not a `>` blockquote — blockquotes and headings render flat in the terminal; fenced blocks and `---` rules are the only strong separators.
+- For `LINE`, use `line`; if it is `null` (common on outdated or moved code), fall back to `originalLine`, and if that is also null, drop the `:LINE` suffix (and `R<line>`) rather than printing `:null`.
 - If the thread has multiple comments, render each in order so the discussion reads naturally.
-- Mark outdated threads with `⚠️ outdated` next to the heading.
+- Mark outdated threads with `⚠️ outdated` on the header line.
 - Number the comments `[1]`, `[2]`, … so the user (and you) can refer to them later.
 
 ## 4. Triage into three buckets
@@ -89,17 +84,17 @@ After listing the raw comments, organise them by **number** into three buckets. 
 - a **scope tag** estimating how big the change is — `S` (a line or two), `M` (a few files), or `L` (larger change or refactor) — with a couple of words on what drives it, e.g. `M — touches 3 call sites`;
 - a **one-line rationale** — not a rewrite of the comment, just why it landed in that bucket.
 
-A large scope (`L`) on something otherwise simple is itself a reason to put it in 💬 Discuss rather than ✅ No-brainers.
+A large scope (`L`) on something otherwise simple is itself a reason to put it in 💬 Discuss rather than ✅ Trivial.
 
-- ✅ **No-brainers** — Claude agrees and the change is clear and low-risk. State briefly what you'd do.
+- ✅ **Trivial** — Claude agrees and the change is clear and low-risk. State briefly what you'd do.
 - 💬 **Discuss** — needs a decision, has a tradeoff, is ambiguous, or touches something the user should weigh in on. State the question or the options.
 - ⚠️ **Push back** — Claude thinks the comment is wrong, unnecessary, or would make things worse. **You have permission to push back on the user's own comments too** — but only when you genuinely disagree. Don't manufacture objections to seem rigorous; an empty push-back bucket is fine when you agree with everything. When you do push back, give your honest reasoning so the user can overrule you.
 
-A comment can only sit in one bucket — pick the most honest one. If you are genuinely unsure whether something is a no-brainer, it belongs in Discuss.
+A comment can only sit in one bucket — pick the most honest one. If you are genuinely unsure whether something is trivial, it belongs in Discuss.
 
 ### Suggest a fix for each actionable comment
 
-For every comment in ✅ **No-brainers** and 💬 **Discuss**, propose the concrete fix you would make — the specific approach, and the key lines or function involved — so the user can approve it at a glance. **Describe the fix; do not implement it yet** (code changes only happen in step 5, once the user says go). For 💬 Discuss items where there's more than one reasonable fix, lay out the options rather than picking one silently. For ⚠️ Push-back items, no fix is needed — the recommendation is to not change anything.
+For every comment in ✅ **Trivial** and 💬 **Discuss**, propose the concrete fix you would make — the specific approach, and the key lines or function involved — so the user can approve it at a glance. **Describe the fix; do not implement it yet** (code changes only happen in step 5, once the user says go). For 💬 Discuss items where there's more than one reasonable fix, lay out the options rather than picking one silently. For ⚠️ Push-back items, no fix is needed — the recommendation is to not change anything.
 
 End the triage by asking the user which comments they want to act on. Then stop.
 
