@@ -37,5 +37,24 @@ memory. It's **read-only**: it reports, ranks findings by what's actually lost i
 the tab closes, asks you to acknowledge, and never fixes anything itself. Clean
 checks stay silent. Fires only when invoked by name.
 
+### second-mind
+
+Lets a Claude working in **any** repo use the 2nd-mind knowledge vault safely. Four
+operations: `check` (search the gotcha runbooks for an already-solved failure mode
+*before* debugging — fires unprompted), `ask` (answer from the vault, with page
+citations), `capture` (stage a finding in the vault's gitignored inbox with a full
+provenance block — repo, branch, commit, transcript path), and `sync` (fast-forward the
+local clone and report pending captures).
+
+It is **capture-only**: the sole writable path is `knowledge/inbox/`, and it never
+commits or pushes. That is deliberate — the vault is git-crypt encrypted, filenames and
+paths are *not* encrypted, and the codename mapping lives in a file an outside session
+can't read. A foreign agent writing pages directly produces unlinked duplicates at
+leaking paths; capturing with provenance lets a session inside the vault do the
+placement and linking. It also detects a locked (unkeyed) vault and says so instead of
+interpreting encrypted bytes.
+
+Set `SECOND_MIND_VAULT` if the vault isn't at one of the default paths.
+
 Skills are auto-discovered from the `skills/` directory — add a new
 `skills/<name>/SKILL.md` to add another.
