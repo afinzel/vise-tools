@@ -58,3 +58,30 @@ Set `SECOND_MIND_VAULT` if the vault isn't at one of the default paths.
 
 Skills are auto-discovered from the `skills/` directory — add a new
 `skills/<name>/SKILL.md` to add another.
+
+## Hooks
+
+### clean-code checks
+
+`hooks/clean_code_hook.py` runs on every `Write`/`Edit`/`MultiEdit` to a source
+file (`.cs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.java`, `.go`) and checks three
+clean-code rules:
+
+| Rule | Check |
+|---|---|
+| A comment is a private method waiting to be named | Non-doc comment indented inside a body |
+| Names complete a sentence at the call site | Type-prefixed (`strName`) and placeholder (`data`, `temp`) names |
+| A comment carries its own context | Comment referencing `A1`, `section 3.2`, a ticket key, or "see spec" |
+
+**It never blocks.** `PreToolUse` only records; `PostToolUse` re-reads the file
+that actually landed and reports back, so the fix is an edit rather than a
+regenerate. Everything found is appended to `~/.claude/clean-code-findings.jsonl`.
+
+Only rules listed in `RULES_REPORTED_TO_CLAUDE` are reported back to Claude —
+currently just `doc-reference-comment`, the one that's cleanly decidable by
+regex. The structural and naming heuristics log silently, so you can read the
+log and promote one once you trust its hit rate.
+
+Newspaper ordering is deliberately not checked: deciding whether callers precede
+callees needs a real parse, and a regex that guesses would cry wolf often enough
+to get the whole hook ignored. That rule lives in `CLAUDE.md` instead.
