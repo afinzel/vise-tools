@@ -144,8 +144,10 @@ Ask once. If they wave it off, they've made an informed decision and that was th
 
 Only after a clean sweep, or after they've acknowledged.
 
-One line. In your own voice, reflecting what actually happened this session — not a template, not a paragraph of gratitude, not an emoji parade. It should feel like a colleague saying goodnight, and it should still land on the fiftieth use, which means it has to vary and it has to be specific to the day.
+One line. In your own voice, reflecting what actually happened this session — not a template, not a paragraph of gratitude, not an emoji parade. It should feel like a colleague signing off, and it should still land on the fiftieth use, which means it has to vary and it has to be specific to the day.
 
-If everything is clean, that's the whole response. Something with the energy of *"Everything's closed off. Night."*
+Don't assume it's the end of the day. `/thanks` gets run mid-morning before a meeting, at lunch, on a Friday afternoon, at 2am. "Night" lands wrong for most of those. Either keep the sign-off time-neutral — *"Everything's closed off. Catch you later."* — or, if you want to place it, check the actual time first rather than guessing.
+
+If everything is clean, that's the whole response.
 
 And when the user says thanks — say something back. Mean it, briefly, and let them go.
