@@ -18,7 +18,7 @@
       "name": "vise-skills",
       "source": "./plugins/vise-skills",
       "description": "Skills for Claude Code development workflows",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "keywords": ["skills", "workflow"]
     }
   ]
