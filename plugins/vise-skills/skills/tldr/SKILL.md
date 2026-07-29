@@ -77,6 +77,11 @@ What that comes down to:
   reader can follow beats two they have to join up themselves.
 - **Use the words they'd use.** If they say *record*, don't say *document*. If they haven't said
   *canonicalise*, don't introduce it.
+- **Check the word actually means what you need.** Under pressure to sound fluent you'll reach for a
+  near-synonym that is quietly wrong, and the reader stops to work out why it's there. *"Store the
+  spelling from config"* was wrong: `u16` and `U16` are the same spelling, so the word bought
+  nothing and cost a re-read. Say *"use the value from config."* A word that nearly fits reads as
+  noise, and the reader blames themselves for not following.
 
 ## If the question is a decision, not a mechanism
 
