@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# serena MCP server's working directory — regenerated on demand
+.serena/
