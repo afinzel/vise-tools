@@ -26,20 +26,22 @@ The task list is progress UI only. The durable record is the PR threads on GitHu
 
 ## 2b. The Claude Review panel (preferred surface when present)
 
-When inside VS Code, also render the walk in the **Claude Review** extension via the same file contract `/tour` uses (see that skill's step 2a for the full schema and the actions.jsonl watcher). Always write the files; they're harmless without the extension, and chat stays authoritative. Add `.claude-review/` to `.git/info/exclude`.
+When inside VS Code, also render the walk in the **Claude Review** extension via the same file contract `/tour` uses (see that skill's step 2a for the full v3 schema, the platform table, and the actions.jsonl watcher). Always write the files; they're harmless without the extension, and chat stays authoritative. Add `.claude-review/` to `.git/info/exclude`.
 
-Write `.claude-review/tour.json` with `kind: "comments"` — **one part per unresolved thread**, in the same order as the task list:
+Write `.claude-review/tour.json` with `kind: "comments"` — **one beat per unresolved thread**, in the same order as the task list:
 
-- `title`: the task subject line (`[path:line] first words… (@author)`).
-- `narration`: the reviewer's comment verbatim (plus thread replies), shown as the tooltip.
-- `files`: the thread's `path` + `line` (falling back to `originalLine`); no `basePath` unless you materialize the PR base for a useful diff.
+- `text`: the reviewer's comment verbatim (plus thread replies), shown as the tooltip. Never paraphrase it here either.
+- `path` + `line`: the thread's, falling back to `originalLine`; no `basePath` unless you materialize the PR base for a useful diff.
+- `url`: the thread's GitHub URL, so the panel can link back.
 - `status`: `current` on the thread being discussed, `pending`/`done`/`skipped` for the rest — keep it in lockstep with the TaskUpdate calls, and re-read the file on advance since the extension writes `done`/`skip` back into it.
 
-At each wait point (step 4.4) run the actions.jsonl background watcher alongside the chat wait: panel `done` means the user considers it handled — but a task/part is only marked `done` once the thread is genuinely replied-to and resolved on GitHub, so on a panel `done` confirm the intended outcome (fix applied? push-back agreed?) before resolving. Panel `skip` → skip. Panel `comment` → the user's instruction for this thread (e.g. "fix it but keep the old name") — treat exactly like the same words in chat.
+**Routes group the threads.** One route per file is the natural default when a PR has comments spread across many files; a single route is fine for a small PR. The same file legitimately hosts many beats — several unresolved threads in one file is the common case, not an edge case.
+
+At each wait point (step 4.4) run the actions.jsonl background watcher alongside the chat wait: panel `done` means the user considers it handled — but a task/beat is only marked `done` once the thread is genuinely replied-to and resolved on GitHub, so on a panel `done` confirm the intended outcome (fix applied? push-back agreed?) before resolving. Panel `skip` → skip. Panel `goto` → the user jumped to another thread; follow them there. Panel `comment` → the user's instruction for this thread (e.g. "fix it but keep the old name") — treat exactly like the same words in chat.
 
 ## 3. Detect the display surface
 
-- `$env:TERM_PROGRAM -eq 'vscode'` → inside VS Code: use `code --goto <path>:<line>` to open each comment's location in the user's current window.
+- Inside VS Code (`[ "$TERM_PROGRAM" = vscode ]` on macOS/Linux, `$env:TERM_PROGRAM -eq 'vscode'` on Windows) → use `code --goto <path>:<line>` to open each comment's location in the user's current window.
 - `code` CLI available but not inside VS Code → `--goto` opens a separate window; mention once, carry on.
 - Neither → show the relevant code excerpt inline in chat instead.
 
@@ -71,5 +73,6 @@ When the list is exhausted (or the user stops):
 ## Quality bar
 
 - The reviewer's raw words and the link are the product — never paraphrase in place of quoting.
+- Your own take, next to those raw words, is held to the `/tldr` standards: whether it matters before what it is, concrete before abstract, one point said once. The quote is theirs and untouchable; the commentary is yours and has to earn its space.
 - The checklist must tell the truth: a ticked task means a resolved thread on GitHub, nothing less.
 - Don't manufacture disagreement to seem rigorous; agreeing with every comment is a fine outcome.
