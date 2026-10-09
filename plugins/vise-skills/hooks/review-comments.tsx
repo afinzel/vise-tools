@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 
 import type { CodeReference, PullRequestRef, ReferenceExcerpt, ReviewSession, ReviewThread, ThreadOutcome, TriageInput } from '../types'
 import {
@@ -75,9 +75,9 @@ export const register: Register = on => {
       const isFreshStart = current.pullRequest === null || isAnotherPullRequest
       await loadReviewOnce($, isFreshStart ? requested : current.pullRequest!.url, { isFreshStart })
     }
-    void $.ui.open({ id: PANE, title: PANE_TITLE })
+    const placement = await $.ui.open({ id: PANE, title: PANE_TITLE })
     const loaded = await read($, review)
-    return loaded.error === null ? { result: threadsForClaude(loaded) } : { deny: loaded.error }
+    return loaded.error === null ? { result: threadsForClaude(loaded, placement) } : { deny: loaded.error }
   }))
 
   on('tool.call', { tool: TOOL_TRIAGE }, async ($, e) => answeredOrDenied(async () => {
@@ -474,8 +474,13 @@ async function answeredOrDenied(work: () => Promise<{ result: string } | { deny:
   }
 }
 
-function threadsForClaude(loaded: ReviewSession): string {
+/**
+ * The threads, plus whether the person can see the sidebar: the skill walks in the sidebar only
+ * when it is shown, and in chat otherwise (as in the VS Code extension's panel, which draws no panes).
+ */
+function threadsForClaude(loaded: ReviewSession, placement: UiOpenResult): string {
   return JSON.stringify({
+    sidebar: placement.isPlaced ? { isShown: true } : { isShown: false, reason: placement.reason },
     pullRequest: loaded.pullRequest,
     threads: loaded.threads.map(({ excerpt, ...thread }) => thread),
   })

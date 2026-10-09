@@ -27,7 +27,10 @@ batch; the rest are stepped through one at a time — code, the reviewer's words
 it makes the change, replies on the thread, and resolves it.
 
 With the review sidebar (below) the walk happens in a pane; without it, in chat,
-plus the Claude Review panel in VS Code.
+plus the Claude Review panel in VS Code. The mod reports whether the sidebar is
+actually visible (the VS Code extension's chat panel draws no panes), so the skill
+picks the route from that. In chat and VS Code the walk can be narrated, using the
+`tour` skill's voice.
 
 ### thanks
 
