@@ -18,13 +18,16 @@ next session will focus on to tailor the doc.
 
 ### review-comments
 
-Triages the **unresolved** review comments on a GitHub PR. Auto-detects the
-current branch's PR (or pass a PR number), fetches unresolved threads via the
-GraphQL API, and shows each comment **raw** — the reviewer's actual words, with
-a clickable link to the line. Then it organises them into ✅ no-brainers,
-💬 discuss, and ⚠️ push-back buckets, each with an `S/M/L` scope tag, and stops
-so you decide what to act on. When you give the go-ahead it makes the change,
-replies on the thread, and resolves it.
+Works through the **unresolved** review comments on a GitHub PR. Auto-detects the
+current branch's PR (or pass a PR number or URL), and triages each thread into
+✅ trivial, 💬 discuss and ⚠️ push back, with an `S/M/L` scope tag and a
+**behaviour-change flag**. The trivial fixes that don't change behaviour go in one
+batch; the rest are stepped through one at a time — code, the reviewer's words
+**raw**, Claude's suggestion — and nothing changes until you decide. On a go-ahead
+it makes the change, replies on the thread, and resolves it.
+
+With the review sidebar (below) the walk happens in a pane; without it, in chat,
+plus the Claude Review panel in VS Code.
 
 ### thanks
 
@@ -58,6 +61,34 @@ Set `SECOND_MIND_VAULT` if the vault isn't at one of the default paths.
 
 Skills are auto-discovered from the `skills/` directory — add a new
 `skills/<name>/SKILL.md` to add another.
+
+## Mods
+
+### review sidebar
+
+`hooks/review-comments.tsx` is a [mod](https://code.claude.com/docs/en/plugins/mods/overview)
+that gives `review-comments` a sidebar. Running `/review-comments` opens a pane beside
+the transcript, which fills with the PR's unresolved threads: **To do** (grouped by
+bucket once Claude has triaged them), **Ready to push**, **Skipped**, and a foldable
+**Done**. A fix is made locally and waits in Ready to push; **Commit & push** commits and
+pushes them, and only then does Claude reply on and resolve each thread, citing the commit. Closed it?
+`/review-sidebar` reopens it, even while Claude is working. Click a thread to see its code, comment and
+suggestion, with **Fix**, **Push back**, **Discuss**, **Skip** and **Next** buttons
+(hotkeys `f` `p` `d` `s` `n`). A thread with several possible fixes gets one button per
+option instead of **Fix** (hotkeys `1`–`9`, the recommended one highlighted), and shows
+any other code the decision depends on. Each row has a **behaviour change** checkbox that
+starts as Claude's call and is yours to flip. **Fix N trivial (no behaviour change)** sends the batch,
+and **Step through** opens the next thread waiting on you. A band above the prompt
+shows progress.
+
+The buttons send your decision to Claude as a prompt; Claude reports back through the
+mod's `review_triage` and `review_mark` tools, and the sidebar re-reads GitHub after
+each fix so a tick means a resolved thread. It reads code from your working tree when
+the PR's branch is checked out, and from the PR's head commit otherwise.
+
+Needs Claude Code 2.1.287 or later and `gh` signed in. The pane docks in the
+fullscreen terminal from 110 columns, and sits above the prompt otherwise. Tests:
+`claude plugin test plugins/vise-skills`.
 
 ## Hooks
 

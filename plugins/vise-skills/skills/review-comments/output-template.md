@@ -4,6 +4,43 @@ This is the exact shape for presenting the triage (skill step 3 + step 4).
 It is tuned for the **terminal CLI**, whose markdown renderer is weak — design
 for it, not for a rich web renderer.
 
+## Default flow shapes
+
+**Quick-fix summary** (shown first: the ✅ items whose fix does not change behaviour):
+
+    ## ✅ Trivial, no behaviour change
+
+    [N] `file.ext:LINE` · @author
+    <one-line gist of the ask>
+    **Fix:** `<the concrete fix, one line>` `<S|M|L>`
+    <github-diff-link>
+
+    Shall I fix these?
+
+**One-at-a-time item** (each remaining item on its own turn: ✅ with a behaviour change, then 💬, then ⚠️):
+
+    ### [N] `file.ext:LINE` · @author · <✅|💬|⚠️>
+
+    **Code**
+    ```<lang>
+    <line-numbered excerpt of the current code>
+    ```
+
+    **Comment**
+    ```
+    <the reviewer's words, verbatim>
+    ```
+
+    **Suggestion**
+    <fix, or options a/b with a recommendation, or push-back reasoning> `<S|M|L>`
+    ⚡ changes behaviour            ← only when flagged
+
+    <github-diff-link>
+
+    <the decision question>
+
+The full per-comment blocks below are for when the user asks for everything at once.
+
 ## Grouping
 
 Present the comments in three groups, in this order. Omit a group entirely if

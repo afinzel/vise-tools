@@ -3,3 +3,7 @@ __pycache__/
 
 # serena MCP server's working directory — regenerated on demand
 .serena/
+
+# written by Claude Code when it loads a mod from its folder — regenerated on every load
+plugins/*/.claude-plugin/types/
+plugins/*/tsconfig.json
