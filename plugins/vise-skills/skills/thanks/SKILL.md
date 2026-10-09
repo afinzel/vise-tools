@@ -1,6 +1,6 @@
 ---
 name: thanks
-description: End-of-session close-out check. Sweeps for anything left dangling before the user closes the chat — uncommitted work, processes still running, work that was interrupted rather than finished, reasoning that would evaporate, outward-facing loose ends. Read-only: it reports and waits for acknowledgement, it never acts. Use ONLY when the user explicitly runs /thanks. Do NOT trigger on "thanks!", "I'm done", "that's me for the day", or any other wrap-up phrasing — this fires when asked for by name and at no other time.
+description: 'End-of-session close-out check. Sweeps for anything left dangling before the user closes the chat — uncommitted work, processes still running, work that was interrupted rather than finished, reasoning that would evaporate, outward-facing loose ends. Read-only: it reports and waits for acknowledgement, it never acts. Use ONLY when the user explicitly runs /thanks. Do NOT trigger on "thanks!", "I''m done", "that''s me for the day", or any other wrap-up phrasing — this fires when asked for by name and at no other time.'
 ---
 
 # /thanks — the close-out check

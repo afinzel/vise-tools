@@ -1,4 +1,7 @@
 {
+  "modules": [
+    "./review-comments.tsx"
+  ],
   "hooks": {
     "PreToolUse": [
       {
