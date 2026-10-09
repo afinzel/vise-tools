@@ -20,11 +20,13 @@ Do not change code, reply to a thread, or resolve anything until the user has sa
 
 ### Where the walk happens
 
-Pick the surface once, at the start:
+Pick the surface once, at the start. When the `mcp__vise-skills__review_threads` tool is available (the vise-skills mod is loaded), call it first (step 2) and read its `sidebar` field — the mod tried to open the sidebar and reports whether the user can see it:
 
-- **Review sidebar** — when the `mcp__vise-skills__review_threads` tool is available (the vise-skills mod is loaded). The sidebar lists every thread, grouped by bucket; clicking one shows its code, comment and suggestion with Fix / Push back / Discuss / Skip / Next buttons, and a **Fix N trivial (no behaviour change)** button sits at the top. Follow **Sidebar route** below.
-- **VS Code** (`TERM_PROGRAM` is `vscode`) without the sidebar — chat, plus the Claude Review panel and `code --goto`. Follow **Chat route** and **VS Code extras**.
-- **Anywhere else** — follow **Chat route**.
+- **Review sidebar** — `sidebar.isShown` is true, or false only because the terminal is narrow (the `reason` names a column count: tell the user `/review-sidebar` or the **Sidebar** button above the prompt opens it, and carry on in the sidebar). The sidebar lists every thread, grouped by bucket; clicking one shows its code, comment and suggestion with Fix / Push back / Discuss / Skip / Next buttons, and a **Fix N trivial (no behaviour change)** button sits at the top. Follow **Sidebar route** below.
+- **VS Code** (`TERM_PROGRAM` is `vscode`) with no sidebar shown — the extension's chat panel runs the mod but draws no panes, so `isShown` is false for a reason other than width. Chat, plus the Claude Review panel and `code --goto`. Follow **Chat route** and **VS Code extras**. The mod's tools still work here: keep using them for numbering, triage and marks.
+- **Anywhere else** without the sidebar — follow **Chat route**.
+
+If the user says they can't see the sidebar, believe them over the flag and switch to the chat route.
 
 ## 1. Resolve the target PR
 
@@ -117,6 +119,16 @@ Rendering rules, which the template covers in full:
 ### VS Code extras
 
 Inside VS Code without the sidebar, also open each thread's location with `code --goto <path>:<line>` as you reach it, and render the walk in the **Claude Review** panel via the file contract `/tour` uses (see that skill's step 2a for the schema, the platform table and the actions.jsonl watcher). Write `.claude-review/tour.json` with `kind: "comments"` — one beat per thread in walk order, `text` the comment verbatim, `path`/`line` the thread's, `url` the thread's GitHub URL, `status` kept in step with the walk (re-read the file on advance, since the extension writes `done`/`skip` back). One route per file is a natural grouping. Add `.claude-review/` to `.git/info/exclude`. A panel `done` means the user considers it handled — confirm the outcome before resolving; `skip` → skip; `goto` → follow them; `comment` → treat as their words in chat.
+
+### Narration (optional)
+
+On the chat route and the VS Code route each thread is its own turn, so it can be spoken as you reach it. **Ask once, at the start of the walk: narrated or silent?** Skip the question if the user already said (asked for a narrated review, said "no voice"). Default to silent if they don't care. Remember the answer for the whole walk.
+
+Speech uses the `tour` skill's voice setup — follow its step 2b for the TTS install offer, the OS-voice fallback, calling `say.py`, playing **in the background** so the message and the audio land together, and synthesizing the next thread while the current one plays.
+
+What to say for each thread, two or three sentences: who commented and the gist of what they asked; your suggestion in a sentence; and whether it changes behaviour. For a thread with options, name the recommended one. Speak no code, paths or line numbers — they're on screen. The spoken gist is in addition to the verbatim comment on screen, never instead of it.
+
+The sidebar route doesn't narrate: the user steps through threads in the sidebar without a Claude turn, so there is no moment to speak.
 
 ## 5. Acting on decisions
 

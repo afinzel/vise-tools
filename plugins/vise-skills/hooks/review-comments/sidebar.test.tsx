@@ -196,3 +196,15 @@ test('a fix waits in Ready to push, and the push button asks for the commit', as
   expect(submitted[0]).toMatch(/^review-comments: commit and push the fixes for \[1\]/)
   expect(await ui.find({ text: 'Ready to push (1)' })).toBeDefined()
 })
+
+test('review_threads tells Claude when nothing can show the sidebar', async ($, on) => {
+  on('process.run', async ($, e) => ({
+    value: { exitCode: 0, stdout: fakeGitHub(e.argv), stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+  on('ui.open', async () => ({ value: { isPlaced: false as const, reason: 'the attached surfaces place no panes' } }))
+
+  const answer = await $.tool.call({ tool: 'mcp__vise-skills__review_threads' } as never) as { result?: unknown }
+
+  expect(JSON.parse(String(answer.result)).sidebar).toEqual({ isShown: false, reason: 'the attached surfaces place no panes' })
+})
+
