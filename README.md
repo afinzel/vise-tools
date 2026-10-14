@@ -24,6 +24,10 @@ Build, test, and lint subagent with structured diagnostics. Returns parsed error
 
 **Supported ecosystems:** .NET, npm, pnpm, ESLint
 
+### [pinboard](./plugins/pinboard/)
+
+A side pane of pinned tables, artifact links and answers. Claude pins figures you are working through and re-pins them under the same title when they change, so the pane always shows the current version. Forked from [Young-in/pinboard](https://github.com/Young-in/pinboard).
+
 ## License
 
 MIT

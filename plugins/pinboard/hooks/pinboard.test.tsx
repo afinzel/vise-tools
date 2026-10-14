@@ -1,0 +1,469 @@
+import type { On } from 'claude-code'
+import { expect, mock, test } from 'claude-code/testing'
+
+import { textWidth } from './format'
+
+const PANE_PROPS = {
+  title: 'Pins',
+  isFocused: true,
+  bodyColumns: 60,
+  placement: 'dock',
+  scroll: { offset: 0, bodyRows: 30 },
+  view: {},
+} as const
+
+type StoredPin = {
+  id: string
+  kind: string
+  title: string
+  body: string
+  sessionId: string
+  cwd: string
+  createdAt: number
+  agentId?: string
+  agentLabel?: string
+  isNamed?: boolean
+}
+
+/** A pin as another session of the same install would have written it to the shared store. */
+function foreignPin(id: string, title: string, extra: Partial<StoredPin> = {}): StoredPin {
+  return {
+    id,
+    kind: 'text',
+    title,
+    body: `body of ${id}`,
+    sessionId: 'session-B',
+    cwd: '/tmp/proj',
+    createdAt: 1,
+    ...extra,
+  }
+}
+
+/** The engine beneath the plugin: what a session answers, from memory. */
+function engine(on: On, sessionId = 'session-1') {
+  const store = new Map<string, unknown>()
+  const clock = mock.clock(on)
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  on('store.delete', ($, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: [...store.keys()] }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: sessionId }))
+  on('session.cwd', () => ({ value: '/tmp/proj' }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__pinboard__${e.name}` } }))
+  const opens: string[] = []
+  on('ui.open', ($, e) => {
+    opens.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.panes', () => ({ value: [] }))
+  on('agent.list', () => ({ value: [{ id: AGENT, description: '표 찾기', type: 'Explore', status: 'running' }] }))
+  on('session.messages', ($, e) => ({
+    value: [
+      { role: 'user', text: 'go', toolUses: [] },
+      { role: 'assistant', text: e.agentId === AGENT ? AGENT_REPLY : MAIN_REPLY, toolUses: [] },
+    ],
+  }))
+  return { pins: () => (store.get('pins') as StoredPin[] | undefined) ?? [], opens, store, clock }
+}
+
+const AGENT = 'agent-1'
+const AGENT_REPLY = '에이전트 결과:\n\n| step | ok |\n|---|---|\n| 1 | y |'
+const MAIN_REPLY = '메인 결과:\n\n| run | acc |\n|---|---|\n| 1 | 0.9 |'
+const AGENT_VIEW = { ...PANE_PROPS, view: { agentId: AGENT } }
+const RUN = { origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } } as const
+
+function reply(agentId: string | undefined, uuid: string, text: string) {
+  return {
+    message: { type: 'assistant' as const, role: 'assistant' as const, content: [{ type: 'text', text }] },
+    door: 'response' as const,
+    origin: { kind: 'model' as const, model: 'test-model' },
+    uuid,
+    ...(agentId ? { agentId } : {}),
+  }
+}
+
+test('an agent reply offers its candidates only in that agent view, and the pin keeps the agent', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.session.append(reply(AGENT, 'row-a', AGENT_REPLY))
+  expect(world.opens).toEqual([])
+
+  const main = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: PANE_PROPS,
+  })
+  expect(await main.find({ type: 'Button', text: /에이전트 결과/ })).toBeUndefined()
+  await main.unmount()
+
+  const agent = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: AGENT_VIEW,
+  })
+  expect(await agent.find({ type: 'Text', text: /↳ 표 찾기/ })).toBeDefined()
+  const cand = await agent.find({ type: 'Button', text: /에이전트 결과/ })
+  expect(cand).toBeDefined()
+  await agent.press({ key: cand!.key! })
+  expect(world.pins()[0]).toMatchObject({ title: '에이전트 결과', agentId: AGENT, agentLabel: '표 찾기' })
+  await agent.unmount()
+
+  const back = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: PANE_PROPS,
+  })
+  expect(await back.find({ type: 'Text', text: /@표 찾기/ })).toBeDefined()
+  await back.unmount()
+})
+
+test('an agent view lists only that agent pins, and /pin there saves the agent last answer', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'main note', title: '메인 핀' })
+  const mainPin = world.pins()[0]!
+
+  const agent = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: AGENT_VIEW,
+  })
+  expect(await agent.find({ key: `sel:${mainPin.id}` })).toBeUndefined()
+  expect(await agent.find({ type: 'Text', text: /No pins from this agent yet/ })).toBeDefined()
+
+  const { text } = await $.command.run({ command: 'pin', args: '', ...RUN })
+  expect(text).toContain('agent 표 찾기')
+  const agentPin = world.pins().find(p => p.agentId === AGENT)!
+  expect(agentPin).toMatchObject({ kind: 'table', title: '에이전트 결과' })
+  expect(await agent.find({ key: `sel:${agentPin.id}` })).toBeDefined()
+  await agent.unmount()
+
+  const main = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: PANE_PROPS,
+  })
+  expect(await main.find({ key: `sel:${mainPin.id}` })).toBeDefined()
+  expect(await main.find({ key: `sel:${agentPin.id}` })).toBeDefined()
+  await main.unmount()
+
+  await $.command.run({ command: 'pin', args: '', ...RUN })
+  expect(world.pins().find(p => p.title === '메인 결과')?.agentId).toBeUndefined()
+})
+
+test('another session saving meanwhile is kept and shown, not overwritten', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  world.store.set('pins', [foreignPin('b-1', 'B가 저장한 핀')])
+
+  await world.clock.advance(3_000)
+  const ui = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: PANE_PROPS,
+  })
+  expect(await ui.find({ key: 'sel:b-1' })).toBeDefined()
+  await ui.unmount()
+
+  world.store.set('pins', [foreignPin('b-2', 'B의 두 번째 핀'), foreignPin('b-1', 'B가 저장한 핀')])
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'from A', title: 'A가 저장한 핀' })
+  expect(world.pins().map(p => p.title)).toEqual(['A가 저장한 핀', 'B의 두 번째 핀', 'B가 저장한 핀'])
+
+  world.store.set('pins', [foreignPin('b-3', 'B의 세 번째 핀'), ...world.pins()])
+  await $.tool.call({ tool: 'mcp__pinboard__unpin', title: 'A가 저장한 핀' })
+  expect(world.pins().map(p => p.title)).toEqual(['B의 세 번째 핀', 'B의 두 번째 핀', 'B가 저장한 핀'])
+})
+
+test('pin tool stores a pin; the pane lists it, deletes on a second press, and undoes', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+
+  await $.tool.call({
+    tool: 'mcp__pinboard__pin',
+    title: '모델 점수',
+    markdown: '| 모델 | 점수 |\n|---|---|\n| A | 1 |',
+  })
+  expect(world.pins()).toHaveLength(1)
+  expect(world.pins()[0]).toMatchObject({ kind: 'table', title: '모델 점수' })
+  const id = world.pins()[0]!.id
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'pinboard',
+      surface,
+      component: 'Pane',
+      requestId: 'pins',
+      props: PANE_PROPS,
+    })
+    expect(await ui.find({ type: 'Button', key: `sel:${id}` })).toBeDefined()
+    expect(await ui.find({ type: 'Markdown' })).toBeDefined()
+
+    expect(await ui.find({ type: 'Text', text: /^table · proj · \d{4}-\d\d-\d\d \d\d:\d\d$/ })).toBeDefined()
+    expect(await ui.find({ key: 'copy' })).toBeDefined()
+
+    await ui.press({ key: 'delete' })
+    expect(await ui.find({ key: 'delete-yes' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Remove this pin\?/ })).toBeDefined()
+    expect(await ui.find({ key: 'copy' })).toBeUndefined()
+    expect(world.pins()).toHaveLength(1)
+
+    await ui.press({ key: 'delete-yes' })
+    expect(world.pins()).toHaveLength(0)
+    expect(await ui.find({ key: 'undo' })).toBeDefined()
+
+    await ui.press({ key: 'undo' })
+    expect(world.pins()).toHaveLength(1)
+    await ui.unmount()
+  }
+})
+
+test('filter tabs show counts and narrow the list', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: '| a |\n|---|\n| 1 |', title: '표 하나' })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'https://example.com/docs', title: '문서 링크' })
+  const [link, table] = world.pins()
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'pinboard',
+      surface,
+      component: 'Pane',
+      requestId: 'pins',
+      props: PANE_PROPS,
+    })
+    expect(await ui.find({ type: 'Text', text: /All 2/ })).toBeDefined()
+    expect((await ui.find({ type: 'Button', key: 'tab:link' }))?.text).toContain('Links 1')
+
+    await ui.press({ key: 'tab:link' })
+    expect(await ui.find({ key: `sel:${link!.id}` })).toBeDefined()
+    expect(await ui.find({ key: `sel:${table!.id}` })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'tab:all' })).toBeDefined()
+
+    await ui.press({ key: 'tab:all' })
+    expect(await ui.find({ key: `sel:${table!.id}` })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('rows fit long titles to the pane width and mark the selected one', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.tool.call({
+    tool: 'mcp__pinboard__pin',
+    markdown: '| a |\n|---|\n| 1 |',
+    title: '아주 긴 제목이 패널 폭을 넘어가는 경우를 확인하기 위한 핀',
+  })
+  const id = world.pins()[0]!.id
+  const ui = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: { ...PANE_PROPS, bodyColumns: 30 },
+  })
+  const row = await ui.find({ key: `sel:${id}` })
+  expect(row?.text).toContain('…')
+  expect(textWidth(row?.text ?? '')).toBeLessThanOrEqual(30)
+  expect(await ui.find({ type: 'Text', text: /▍/ })).toBeDefined()
+
+  await ui.press({ key: `sel:${id}` })
+  expect(await ui.find({ type: 'Text', text: /▍/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('pins are grouped by session, this session first, and the session tab narrows to it', async ($, on) => {
+  const world = engine(on, 'session-A')
+  world.store.set('pins', [foreignPin('b-1', 'B가 저장한 핀', { createdAt: Date.UTC(2026, 9, 12, 5, 0) })])
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'from A', title: 'A가 저장한 핀' })
+  const mine = world.pins().find(p => p.title === 'A가 저장한 핀')!
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'pinboard',
+      surface,
+      component: 'Pane',
+      requestId: 'pins',
+      props: PANE_PROPS,
+    })
+    expect(await ui.find({ type: 'Text', text: /^This session$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Other session · \d\d-\d\d \d\d:\d\d · proj$/ })).toBeDefined()
+    expect((await ui.find({ key: `sel:${mine.id}` }))?.props).toMatchObject({ hotkey: '1' })
+    expect((await ui.find({ key: 'sel:b-1' }))?.props).toMatchObject({ hotkey: '2' })
+
+    await ui.press({ key: 'tab:session' })
+    expect(await ui.find({ key: `sel:${mine.id}` })).toBeDefined()
+    expect(await ui.find({ key: 'sel:b-1' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^This session$/ })).toBeUndefined()
+    expect(world.store.get('filter')).toBe('session')
+
+    await ui.press({ key: 'tab:all' })
+    await ui.unmount()
+  }
+
+  await $.command.run({
+    command: 'unpin',
+    args: '2',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  expect(world.pins().map(p => p.id)).toEqual([mine.id])
+})
+
+test('the chosen tab is remembered for the next session', async ($, on) => {
+  const world = engine(on)
+  world.store.set('filter', 'session')
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  const ui = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: PANE_PROPS,
+  })
+  expect(await ui.find({ type: 'Button', key: 'tab:session' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'tab:all' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('unpin and list tools work by title and index', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'https://claude.ai/artifact/one', title: '첫째' })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'https://claude.ai/artifact/two', title: '둘째' })
+  expect(world.pins().map(p => p.title)).toEqual(['둘째', '첫째'])
+
+  const listed = await $.tool.call({ tool: 'mcp__pinboard__list' })
+  expect(JSON.stringify(listed.result)).toContain('[artifact] 둘째')
+
+  await $.tool.call({ tool: 'mcp__pinboard__unpin', title: '첫째' })
+  expect(world.pins().map(p => p.title)).toEqual(['둘째'])
+
+  await $.tool.call({ tool: 'mcp__pinboard__unpin', index: 1 })
+  expect(world.pins()).toHaveLength(0)
+})
+
+test('pinning again under the same title replaces that pin, keeping its id', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: '| shortfall |\n|---|\n| 360 |', title: 'July match passes' })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'https://example.com/other', title: 'Other' })
+  const original = world.pins().find(p => p.title === 'July match passes')!
+
+  const updated = await $.tool.call({
+    tool: 'mcp__pinboard__pin',
+    markdown: '| shortfall |\n|---|\n| 7 |',
+    title: '  july  MATCH passes ',
+  })
+
+  expect(JSON.stringify(updated.result)).toContain('updated:')
+  expect(world.pins().map(p => p.title)).toEqual(['july  MATCH passes', 'Other'])
+  expect(world.pins()[0]).toMatchObject({ id: original.id, body: '| shortfall |\n|---|\n| 7 |' })
+})
+
+test('a pin with a derived title, or from another project, is never replaced', async ($, on) => {
+  const world = engine(on)
+  world.store.set('pins', [foreignPin('b-1', 'Summary', { cwd: '/tmp/elsewhere', isNamed: true })])
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'Summary\n\nfirst' })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'Summary\n\nsecond' })
+  await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'named here', title: 'Summary' })
+
+  expect(world.pins().map(p => p.body)).toEqual(['named here', 'Summary\n\nsecond', 'Summary\n\nfirst', 'body of b-1'])
+})
+
+test('a reply with a table becomes a candidate the pane saves on one press', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  const reply = '실험 결과:\n\n| run | acc |\n|---|---|\n| 1 | 0.9 |\n\n링크: https://claude.ai/artifact/abc'
+  await $.session.append({
+    message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text: reply }] },
+    door: 'response',
+    origin: { kind: 'model', model: 'test-model' },
+    uuid: 'row-1',
+  })
+  expect(world.pins()).toHaveLength(0)
+
+  const ui = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'pins',
+    props: PANE_PROPS,
+  })
+  const table = await ui.find({ type: 'Button', text: /실험 결과/ })
+  expect(table).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: /artifact abc/ })).toBeDefined()
+
+  await ui.press({ key: table!.key! })
+  expect(world.pins()).toHaveLength(1)
+  expect(world.pins()[0]).toMatchObject({ kind: 'table', title: '실험 결과' })
+  expect(await ui.find({ key: table!.key! })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Candidates from this session/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an empty board explains how to pin', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'pinboard',
+      surface,
+      component: 'Pane',
+      requestId: 'pins',
+      props: PANE_PROPS,
+    })
+    expect(await ui.find({ type: 'Text', text: /No pins yet/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\/pin +$/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('a new candidate opens the pane unasked once; /pins opens it asked', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  const append = (uuid: string, text: string) =>
+    $.session.append({
+      message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text }] },
+      door: 'response',
+      origin: { kind: 'model', model: 'test-model' },
+      uuid,
+    })
+  await append('row-1', '| a | b |\n|---|---|\n| 1 | 2 |')
+  expect(world.opens).toEqual(['pins'])
+
+  await append('row-2', 'no table here')
+  expect(world.opens).toEqual(['pins'])
+
+  const { text } = await $.command.run({
+    command: 'pins',
+    args: '',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  expect(text).toContain('opened')
+  expect(world.opens).toEqual(['pins', 'pins'])
+})
