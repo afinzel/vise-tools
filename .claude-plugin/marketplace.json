@@ -20,6 +20,13 @@
       "description": "Skills for Claude Code development workflows",
       "version": "0.6.0",
       "keywords": ["skills", "workflow"]
+    },
+    {
+      "name": "pinboard",
+      "source": "./plugins/pinboard",
+      "description": "Side pane of pinned tables and links; re-pinning under the same title keeps one current version",
+      "version": "0.4.0",
+      "keywords": ["mod", "pane", "pin", "tables"]
     }
   ]
 }
