@@ -69,6 +69,57 @@ export type ReviewSession = {
   isLoading: boolean
 }
 
+export type ShutdownStatus = 'not-sent' | 'sent' | 'handed-off' | 'nothing-to-hand-off'
+
+export type ShutdownSession = {
+  name: string
+  /** What `$.session.send` addresses: the name, with its ref when two sessions share it. Empty for this session. */
+  address: string
+  details: string
+  isThisSession: boolean
+  isSelected: boolean
+  status: ShutdownStatus
+  handoffPath: string | null
+}
+
+export type ShutdownRound = {
+  sessions: ShutdownSession[]
+  /** Replies are taken out of the conversation only while the pane shows them. */
+  isPaneShown: boolean
+  error: string | null
+}
+
+export type RestoreVerdict = 'resume' | 'unclear' | 'done'
+
+/** `missing-folder`: its working directory is gone, and `--resume` from anywhere else cannot find the transcript. */
+export type ReopenOutcome = 'not-yet' | 'reopened' | 'failed' | 'missing-folder'
+
+export type RestoreCandidate = {
+  id: string
+  cwd: string
+  label: string
+  lastActive: string
+  /** Its transcript was written in the last two minutes: likely still running, not lost. */
+  isPossiblyStillOpen: boolean
+  handoffPath: string | null
+  verdict: RestoreVerdict | null
+  summary: string | null
+  isSelected: boolean
+  reopen: ReopenOutcome
+}
+
+export type RestorePhase = 'idle' | 'finding' | 'judging' | 'ready'
+
+export type RestoreRound = {
+  hours: number
+  phase: RestorePhase
+  candidates: RestoreCandidate[]
+  /** Why Haiku gave no verdicts; the list still works, unordered and unticked. */
+  judgementProblem: string | null
+  error: string | null
+  isPaneShown: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'vise-skills': {
@@ -78,6 +129,8 @@ declare module 'claude-code' {
       behaviourOverrides: Record<string, boolean>
       expandedThreadId: string | null
       isDoneSectionOpen: boolean
+      shutdown: ShutdownRound
+      restore: RestoreRound
     }
   }
 }
