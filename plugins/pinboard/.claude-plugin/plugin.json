@@ -1,6 +1,6 @@
 {
   "name": "pinboard",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Pin tables, artifact links and answers into a side pane; re-pinning under the same title replaces the pin, so changing figures stay one current version (/pin, /pins, /unpin).",
   "types": "./types/index.d.ts",
   "author": {

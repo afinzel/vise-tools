@@ -47,7 +47,7 @@ is never pinned twice. Pins live in the mod's store across sessions and projects
 | `/pin show <n>` | Print pin n into the conversation, where Claude reads it too |
 | `/pin clear` | Remove all, after confirming |
 | `/pin export` | Write every pin to `~/.claude/pins/pins-<date>.md` |
-| `/pin auto on\|off` | Open the pane on session start and when new candidates appear |
+| `/pin auto on\|off` | Open the pane on session start and when new candidates appear (off until turned on) |
 | `/pins` | Open or close the pane |
 
 In the pane (focus it with `ctrl+x tab`): `1`–`9` select, `a s d g h` pin a candidate, `c` copy,

@@ -442,8 +442,21 @@ test('an empty board explains how to pin', async ($, on) => {
   }
 })
 
-test('a new candidate opens the pane unasked once; /pins opens it asked', async ($, on) => {
+test('a new candidate leaves the pane shut unless auto-open is on', async ($, on) => {
   const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+  await $.session.append({
+    message: { type: 'assistant', role: 'assistant', content: [{ type: 'text', text: '| a | b |\n|---|---|\n| 1 | 2 |' }] },
+    door: 'response',
+    origin: { kind: 'model', model: 'test-model' },
+    uuid: 'row-1',
+  })
+  expect(world.opens).toEqual([])
+})
+
+test('with auto-open on, a new candidate opens the pane unasked once; /pins opens it asked', async ($, on) => {
+  const world = engine(on)
+  world.store.set('autoOpen', true)
   await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
   const append = (uuid: string, text: string) =>
     $.session.append({
@@ -466,4 +479,26 @@ test('a new candidate opens the pane unasked once; /pins opens it asked', async 
   })
   expect(text).toContain('opened')
   expect(world.opens).toEqual(['pins', 'pins'])
+})
+
+test('the pin tool leaves the pane shut, and its result row opens it on a press', async ($, on) => {
+  const world = engine(on)
+  await $.session.start({ cwd: '/tmp/proj', surface: 'terminal', isInteractive: false })
+
+  const { result } = await $.tool.call({ tool: 'mcp__pinboard__pin', markdown: 'note', title: 'Note' })
+  expect(world.pins()).toHaveLength(1)
+  expect(world.opens).toEqual([])
+
+  const ui = await $.ui.mount({
+    plugin: 'pinboard',
+    surface: 'terminal',
+    component: 'ToolResult',
+    requestId: 'call-1',
+    props: { tool_use_id: 'call-1', tool: 'mcp__pinboard__pin', output: result, isErrored: false },
+  })
+  expect(await ui.find({ type: 'Text', text: /pinned: .*Note/ })).toBeDefined()
+
+  await ui.press({ key: 'open-pins' })
+  expect(world.opens).toEqual(['pins'])
+  await ui.unmount()
 })

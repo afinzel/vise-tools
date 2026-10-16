@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- The pane no longer opens by itself. Claude's `pin` tool leaves it shut and shows the saved pin in its
+  result row with an **Open pins** button; tables and links in answers still collect as candidates in
+  the pane, but no longer open it. `/pin auto on` brings back opening on session start and on new
+  candidates.
+
 ## 0.4.0
 
 Forked from [Young-in/pinboard](https://github.com/Young-in/pinboard) at `fd8d395` (0.3.0).
