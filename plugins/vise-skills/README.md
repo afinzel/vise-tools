@@ -74,6 +74,43 @@ Both work in chat too, where no pane is drawn (the VS Code extension's panel): t
 skill asks with a picker instead, and falls back further to `ListAgents`/`SendMessage`
 and the bundled script if the mod isn't loaded.
 
+### self-review
+
+Run `/self-review` on your own branch before asking anyone else. Three reviewers go
+over the diff against its base:
+- the Clean Code rules in `skills/self-review/clean-code-rules.md` (the book's
+  Chapter 17 smells, by their ids, plus your code-style rules as `V1`–`V5`)
+- Matt Pocock's `code-review`, run as it is
+- Claude Code's `/code-review`
+
+Their findings land in one pane. Tick findings, then choose:
+- **Fix**: Claude fixes them.
+- **Fix + comment**: Claude fixes, commits, pushes, and posts an inline comment per fix saying what changed.
+- **Add to review**: puts them in a review you are building. Nothing reaches GitHub until
+  **Submit review**, and pressing a queued finding takes it back out.
+- **Dismiss**: drops them.
+- **More info**: on an expanded finding, asks Claude about it.
+
+**Step through** walks the open findings one at a time, as the review sidebar does. Each one shows
+its code and a suggested fix, with Fix, Add to review, Dismiss, More info and Next for that
+finding alone. Each finding is tagged 🔥 high (must fix), ⚠️ medium (should fix) or 🧹 low (tidy-up),
+in the pane, in chat and in posted comments alike; on GitHub a low one reads `🧹 *nit:*`, and the list is ordered most severe
+first. Claude's `/code-review` gives no severity or fix of its own: the severity comes from its
+category, and Haiku suggests the fix the first time you open the finding. Posted comments lead
+with the severity and end with the suggested fix.
+
+Every dismissed Clean Code finding counts against its rule, across sessions. A rule
+dismissed half the time or more, over three or more findings, is listed at the foot of
+the pane as one to reword or drop.
+
+### ext-review
+
+Run `/ext-review <PR>` on someone else's pull request. Claude Code's `/code-review`
+reviews it, and its findings land in a pane. Tick the ones worth saying and press
+**Add to review**, then **Submit review**: they go out as one GitHub review under your name. A finding goes in as an
+inline comment where the diff shows its line; otherwise it goes in the review body. Nothing is
+posted until you choose.
+
 ### second-mind
 
 Lets a Claude working in **any** repo use the 2nd-mind knowledge vault safely. Four
@@ -110,6 +147,17 @@ skills above. The shutdown pane lists sessions with `ListAgents`, sends with
 shows them, replies are taken out of the conversation so they cost no turns. The
 restore pane runs `find_sessions.py`, asks Haiku through `$.model.complete`, and opens
 tabs with `wt`.
+
+### review findings panes
+
+`hooks/review-findings.tsx` is the pane behind `/self-review` and `/ext-review`.
+
+- **Claude's findings:** it catches `/code-review`'s findings on their way through the
+  `ReportFindings` tool, while a review round is open. A re-report after fixes is
+  skipped.
+- **The other reviewers:** they reach it through `findings_record`.
+- **Posting:** sends one `gh api …/reviews` call with the review as JSON on stdin.
+- **Rule tallies:** kept in the plugin's store, so they last across sessions.
 
 ### review sidebar
 

@@ -120,6 +120,58 @@ export type RestoreRound = {
   isPaneShown: boolean
 }
 
+/** `ext` reviews someone else's PR; `self` reviews your own branch before others do. */
+export type FindingsReviewKind = 'ext' | 'self'
+
+/** Which reviewer raised a finding: Claude's /code-review, Matt Pocock's code-review, or the Clean Code rules. */
+export type FindingSource = 'claude' | 'matt' | 'clean-code'
+
+export type FindingSeverity = 'high' | 'medium' | 'low'
+
+/**
+ * `queued` waits in the review being built; Submit posts every queued finding as one review.
+ * `dismissed` is the user rejecting a finding, and counts against its rule; `withdrawn` is Claude
+ * finding it does not hold up, and does not.
+ */
+export type FindingStatus = 'open' | 'queued' | 'fixing' | 'fixed' | 'posted' | 'dismissed' | 'withdrawn'
+
+export type ReviewFinding = {
+  id: string
+  source: FindingSource
+  file: string
+  line: number | null
+  summary: string
+  shortSummary: string
+  severity: FindingSeverity
+  /** The change that would settle it, in prose or code; a reviewer's own, else Haiku's when the finding is first opened. */
+  suggestedFix: string | null
+  isSuggestingFix: boolean
+  failureScenario: string | null
+  category: string | null
+  /** The Clean Code rule it breaks, e.g. `G30`; tallied when dismissed, to show which rules keep missing. */
+  rule: string | null
+  status: FindingStatus
+  isSelected: boolean
+  commentUrl: string | null
+  /** The code around its line, read when the finding is first opened. */
+  excerpt: CodeExcerpt | null
+}
+
+export type FindingsRound = {
+  pullRequest: PullRequestRef | null
+  /** Per file, the head-side lines the PR diff shows: GitHub takes an inline comment only on those. */
+  commentableLines: Record<string, number[]>
+  findings: ReviewFinding[]
+  /** Reviewers still running; the pane says it is waiting on them. */
+  sourcesPending: FindingSource[]
+  expandedId: string | null
+  isPaneShown: boolean
+  error: string | null
+}
+
+/** How often a Clean Code rule raised a finding, and how often the person dismissed one. */
+export type RuleTally = { raised: number; dismissed: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'vise-skills': {
@@ -131,6 +183,9 @@ declare module 'claude-code' {
       isDoneSectionOpen: boolean
       shutdown: ShutdownRound
       restore: RestoreRound
+      extReview: FindingsRound
+      selfReview: FindingsRound
+      activeFindingsReview: FindingsReviewKind | null
     }
   }
 }
