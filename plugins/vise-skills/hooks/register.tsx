@@ -1,5 +1,6 @@
 import type { Register } from 'claude-code'
 
+import { registerFindingsPanes, registerFindingsTools } from './review-findings'
 import { registerRestorePane, registerRestoreTools } from './restore-sessions'
 import { registerReviewSidebar, registerReviewSidebarCommandAndTools } from './review-comments'
 import { registerShutdownPane, registerShutdownTools } from './shutdown'
@@ -13,9 +14,11 @@ export const register: Register = (on, options) => {
     await registerReviewSidebarCommandAndTools($)
     await registerShutdownTools($)
     await registerRestoreTools($)
+    await registerFindingsTools($)
     return next(e)
   })
   registerReviewSidebar(on, options)
   registerShutdownPane(on, options)
   registerRestorePane(on, options)
+  registerFindingsPanes(on, options)
 }
