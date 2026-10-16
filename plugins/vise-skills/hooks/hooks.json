@@ -1,6 +1,6 @@
 {
   "modules": [
-    "./review-comments.tsx"
+    "./register.tsx"
   ],
   "hooks": {
     "PreToolUse": [

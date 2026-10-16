@@ -43,6 +43,37 @@ memory. It's **read-only**: it reports, ranks findings by what's actually lost i
 the tab closes, asks you to acknowledge, and never fixes anything itself. Clean
 checks stay silent. Fires only when invoked by name.
 
+### shutdown
+
+Run `/shutdown` before a restart, or before closing every Claude window. It opens a
+pane listing this session and every other Claude session on this machine, all ticked;
+untick any to leave out (**All** / **None**), and **Send**. Each ticked session gets a
+message: at your next clean stopping point, run `handoff` and reply with its path. This
+session runs its own handoff too. Nobody commits, pushes or kills anything to tidy up.
+Rows tick off as replies arrive, a band above the prompt counts them, and a toast says
+when it's safe to restart. Tell any session to ignore the message and it will.
+
+Reach is per machine. Sessions on other machines show up only with Remote Control
+connected, and cloud sessions are left out because they survive a local restart and
+can't reply.
+
+### restore-sessions
+
+Run `/restore-sessions` after a restart, planned or not. It finds the sessions active
+in a recent window (24h by default; pass `12h`, `3d`) from their JSONL transcripts,
+pulls the last few messages of each with `find_sessions.py`, and has Haiku judge which
+were mid-work and which had finished. A pane lists them mid-work first and pre-ticked,
+with any handoff document that names them; **Reopen** opens each in its own Windows
+Terminal tab with `claude --resume`. A session whose folder is gone is skipped and
+says so; where no tab can be opened, the row shows the command to run instead.
+
+Claude Code's `SessionEnd` hook isn't used: a forced Windows Update restart kills
+the process before it fires, while the transcripts are already on disk.
+
+Both work in chat too, where no pane is drawn (the VS Code extension's panel): the
+skill asks with a picker instead, and falls back further to `ListAgents`/`SendMessage`
+and the bundled script if the mod isn't loaded.
+
 ### second-mind
 
 Lets a Claude working in **any** repo use the 2nd-mind knowledge vault safely. Four
@@ -66,6 +97,19 @@ Skills are auto-discovered from the `skills/` directory — add a new
 `skills/<name>/SKILL.md` to add another.
 
 ## Mods
+
+The mods register from `hooks/register.tsx`: the engine takes one hooks module per
+plugin, so each mod exports its hooks and its tools, and that module wires them in.
+
+### shutdown and restore panes
+
+`hooks/shutdown.tsx` and `hooks/restore-sessions.tsx` are the panes behind the two
+skills above. The shutdown pane lists sessions with `ListAgents`, sends with
+`$.session.send`, and reads replies on `session.receive`: a reply names its sender
+(`shutdown-reply <name>: <path>`), because a delivery carries only text. While the pane
+shows them, replies are taken out of the conversation so they cost no turns. The
+restore pane runs `find_sessions.py`, asks Haiku through `$.model.complete`, and opens
+tabs with `wt`.
 
 ### review sidebar
 

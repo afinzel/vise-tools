@@ -30,6 +30,7 @@ import {
   viewsInWalkOrder,
 } from './review-comments/walk-order'
 import type { ThreadView } from './review-comments/walk-order'
+import { answeredOrDenied, toolArguments } from './tool-answers'
 
 const PANE = 'review-comments'
 const PANE_TITLE = 'Review comments'
@@ -46,12 +47,7 @@ const behaviourOverrides = atom({ plugin: 'vise-skills', key: 'behaviourOverride
 const expandedThreadId = atom({ plugin: 'vise-skills', key: 'expandedThreadId' } as const, null)
 const isDoneSectionOpen = atom({ plugin: 'vise-skills', key: 'isDoneSectionOpen' } as const, true)
 
-export const register: Register = on => {
-  on('session.start', async ($, e, next) => {
-    await registerCommandAndTools($)
-    return next(e)
-  })
-
+export const registerReviewSidebar: Register = on => {
   on('command.run', { command: 'review-sidebar' }, async $ => {
     await $.ui.open({ id: PANE, title: PANE_TITLE })
     const loaded = await read($, review)
@@ -65,7 +61,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('tool.call', { tool: TOOL_THREADS }, async ($, e) => answeredOrDenied(async () => {
+  on('tool.call', { tool: TOOL_THREADS }, async ($, e) => answeredOrDenied('review sidebar', async () => {
     const { pr, refresh } = toolArguments<{ pr?: string; refresh?: boolean }>(e)
     const requested = parsePullRequestTarget(pr ?? '')
     await loadInFlight
@@ -80,13 +76,13 @@ export const register: Register = on => {
     return loaded.error === null ? { result: threadsForClaude(loaded, placement) } : { deny: loaded.error }
   }))
 
-  on('tool.call', { tool: TOOL_TRIAGE }, async ($, e) => answeredOrDenied(async () => {
+  on('tool.call', { tool: TOOL_TRIAGE }, async ($, e) => answeredOrDenied('review sidebar', async () => {
     const { items } = toolArguments<{ items: TriageInput[] }>(e)
     const unknown = await recordTriage($, items)
     return { result: unknown.length === 0 ? `Triage recorded for ${items.length} threads.` : `Recorded; no thread numbered ${unknown.join(', ')}.` }
   }))
 
-  on('tool.call', { tool: TOOL_MARK }, async ($, e) => answeredOrDenied(async () => {
+  on('tool.call', { tool: TOOL_MARK }, async ($, e) => answeredOrDenied('review sidebar', async () => {
     const { number, outcome } = toolArguments<{ number: number; outcome: ThreadOutcome }>(e)
     const thread = (await read($, review)).threads.find(candidate => candidate.number === number)
     if (thread === undefined) {
@@ -136,7 +132,7 @@ export const register: Register = on => {
   })
 }
 
-async function registerCommandAndTools($: EngineInterface) {
+export async function registerReviewSidebarCommandAndTools($: EngineInterface) {
   await $.command.register({
     name: 'review-sidebar',
     description: 'Reopen the review sidebar',
@@ -457,22 +453,7 @@ async function loadReviewOnce($: EngineInterface, requested: PullRequestTarget, 
   await loadInFlight
 }
 
-/** A registered tool's arguments arrive as fields of the call itself, beside `tool` and `tool_use_id`. */
-function toolArguments<Arguments>(call: object): Arguments {
-  return call as Arguments
-}
 
-/**
- * A tool hook that throws is skipped, and Claude then sees only "no hook answered", so every
- * failure comes back as a refusal that says what went wrong.
- */
-async function answeredOrDenied(work: () => Promise<{ result: string } | { deny: string }>) {
-  try {
-    return await work()
-  } catch (error) {
-    return { deny: `The review sidebar failed: ${error instanceof Error ? error.message : String(error)}` }
-  }
-}
 
 /**
  * The threads, plus whether the person can see the sidebar: the skill walks in the sidebar only
