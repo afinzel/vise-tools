@@ -25,7 +25,7 @@
       "name": "pinboard",
       "source": "./plugins/pinboard",
       "description": "Side pane of pinned tables and links; re-pinning under the same title keeps one current version",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "keywords": ["mod", "pane", "pin", "tables"]
     }
   ]

@@ -38,6 +38,7 @@ type PinInput = { kind: PinboardKind; title: string; body: string; sourceUuid?: 
 type SavedPin = { pin: PinboardPin; isReplacement: boolean }
 
 const PANE = 'pins'
+const PIN_TOOL = 'mcp__pinboard__pin'
 const PANE_TITLE = 'Pins'
 const STORE_PINS = 'pins'
 const STORE_BACKUP = 'pins.backup'
@@ -291,7 +292,7 @@ async function openPane($: Dollar, options: { asked: boolean; focus?: boolean })
   if (options.asked) {
     await update($, autoOpenSuppressed, () => false)
   } else {
-    const auto = (await $.store.get(STORE_AUTO_OPEN)) !== false
+    const auto = (await $.store.get(STORE_AUTO_OPEN)) === true
     if (!auto || (await read($, autoOpenSuppressed))) return false
   }
   const opened = await $.ui.open(
@@ -339,7 +340,7 @@ const HELP = [
   '/pin show <n>       print pin n into the conversation (the model reads it too)',
   '/pin clear          remove all (after confirming)',
   '/pin export         export to ~/.claude/pins/pins-<date>.md',
-  '/pin auto on|off    open the pane on session start and when new candidates appear',
+  '/pin auto on|off    open the pane on session start and when new candidates appear (default off)',
   '/pins               open/close the pane',
   'Sessions: "All" groups pins by session · the "This session" tab shows only this session\'s pins',
   'Agents: while viewing an agent (pane open), the pane and /pin work on that agent',
@@ -472,7 +473,7 @@ async function runAuto($: Dollar, rest: string): Promise<string> {
   const v = rest.trim().toLowerCase()
   if (v !== 'on' && v !== 'off') {
     const cur = await $.store.get(STORE_AUTO_OPEN)
-    return `Auto-open: ${cur === false ? 'off' : 'on'}  (/pin auto on|off)`
+    return `Auto-open: ${cur === true ? 'on' : 'off'}  (/pin auto on|off)`
   }
   await $.store.set(STORE_AUTO_OPEN, v === 'on')
   return `Auto-open: ${v}`
@@ -876,6 +877,37 @@ function capPerAgent(list: PinboardCandidate[], cap: number): PinboardCandidate[
   })
 }
 
+/** The pin tool's result row: what was saved, and a button that opens the pane on demand. */
+function renderPinResult($: Dollar, e: RenderInputOf<'ToolResult', RenderSurface>) {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const text = resultText(e.props.output)
+  return (
+    <Box flexDirection="row" gap={1}>
+      <Text dimColor>{text}</Text>
+      <Button
+        key="open-pins"
+        variant="primary"
+        label="Open pins"
+        onPress={() => {
+          void openPane($, { asked: true })
+        }}
+      />
+    </Box>
+  )
+}
+
+/** The tool's reply line, whichever shape the surface hands over: the text, `{ result }`, or MCP content. */
+function resultText(output: unknown): string {
+  if (typeof output === 'string') return output
+  if (typeof output !== 'object' || output === null) return ''
+  const { result, content } = output as { result?: unknown; content?: unknown }
+  if (typeof result === 'string') return result
+  if (!Array.isArray(content)) return ''
+  return content
+    .map(block => (typeof block?.text === 'string' ? block.text : ''))
+    .join('')
+}
+
 /** A plugin tool answers with a string (or an array of content blocks); an object is refused. */
 function toolText(text: string) {
   return { result: text }
@@ -962,7 +994,7 @@ export const register: Register = on => {
   on('command.run', { command: 'unpin' }, async ($, e) => ({ text: await runRemove($, e.args) }))
   on('command.run', { command: 'pins' }, async $ => ({ text: await togglePane($) }))
 
-  on('tool.call', { tool: 'mcp__pinboard__pin' }, async ($, e) => {
+  on('tool.call', { tool: PIN_TOOL }, async ($, e) => {
     const input = e as unknown as Record<string, unknown>
     const markdown = typeof input.markdown === 'string' ? input.markdown.trim() : ''
     if (!markdown) return toolText('error: markdown is empty')
@@ -970,8 +1002,8 @@ export const register: Register = on => {
     const kind = isKind(input.kind) ? input.kind : classify(markdown)
     // A subagent or teammate calling the tool runs in its own loop: the pin remembers which.
     const tag = await agentTag($, typeof input.agentId === 'string' ? input.agentId : undefined)
+    // The pane stays shut: the result row offers to open it, so a pin never takes the screen unasked.
     const added = await addPins($, [{ kind, title, body: markdown, isNamed: Boolean(title), ...tag }])
-    await openPane($, { asked: true })
     const first = added[0]
     return toolText(
       first
@@ -1061,4 +1093,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => renderPane($, e))
+  on('ui.render', { component: 'ToolResult' }, ($, e, next) =>
+    e.props.tool === PIN_TOOL && !e.props.isErrored ? renderPinResult($, e) : next(e),
+  )
 }
