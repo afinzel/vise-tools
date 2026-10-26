@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { commentableLines, commentBody, findingsFrom, withCurrentFields, oftenDismissedRules, reviewPayload, tallyDismissed, tallyRaised } from './findings'
+import { commentableLines, commentBody, findingsFrom, fixPrompt, withCurrentFields,oftenDismissedRules, reviewPayload, tallyDismissed, tallyRaised } from './findings'
 
 const PULL_REQUEST = { owner: 'afinzel', repo: 'vise-tools', number: 12, title: 'Orders', url: 'https://github.com/afinzel/vise-tools/pull/12', headBranch: 'feat/orders', headCommit: 'abc123' }
 
@@ -72,12 +72,34 @@ test('a Clean Code rule dismissed half the time or more, over three or more find
   expect(oftenDismissedRules(tallies)).toEqual([{ rule: 'G25', raised: 3, dismissed: 2 }])
 })
 
+test('a finding says whether fixing it changes behaviour, or nothing when its reviewer did not judge it', async () => {
+  const findings = findingsFrom('claude', [
+    { file: 'a.ts', summary: 'Writes are no longer atomic.', is_behaviour_change: true },
+    { file: 'a.ts', summary: 'Log line misspelt.', is_behaviour_change: false },
+    { file: 'a.ts', summary: 'Unjudged.' },
+  ], [])
+
+  expect(findings.map(finding => finding.isBehaviourChange)).toEqual([true, false, null])
+})
+
+test('a fix prompt holds a finding judged not to change behaviour to that', async () => {
+  const findings = findingsFrom('clean-code', [
+    { file: 'a.ts', line: 3, summary: 'Does two things.', is_behaviour_change: false },
+    { file: 'a.ts', line: 9, summary: 'Returns the wrong array.', is_behaviour_change: true },
+  ], [])
+
+  const prompt = fixPrompt('self', findings, { isCommenting: false })
+
+  expect(prompt).toMatch(/clean-code-1\*\* a\.ts:3: Does two things\.\n {2}No behaviour change: callers must see exactly what they see today\./)
+  expect(prompt).not.toMatch(/a\.ts:9: Returns the wrong array\.\n {2}No behaviour change/)
+})
+
 test('a finding from before severity and suggested fixes existed still makes a comment', async () => {
   const [current] = findingsFrom('matt', [{ file: 'a.ts', line: 3, summary: 'Contradicts nullable.', category: 'standards' }], [])
-  const { severity, suggestedFix, isSuggestingFix, excerpt, ...older } = current!
+  const { severity, suggestedFix, isSuggestingFix, excerpt, isBehaviourChange, ...older } = current!
 
   const upgraded = withCurrentFields(older as never)
 
-  expect(upgraded).toMatchObject({ severity: 'low', suggestedFix: null, isSuggestingFix: false, excerpt: null })
+  expect(upgraded).toMatchObject({ severity: 'low', suggestedFix: null, isSuggestingFix: false, excerpt: null, isBehaviourChange: null })
   expect(commentBody(upgraded, 'Dropped the ?.')).toBe('Dropped the ?.\n\n> 🧹 *nit:* Contradicts nullable.')
 })

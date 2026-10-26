@@ -147,6 +147,8 @@ export type ReviewFinding = {
   suggestedFix: string | null
   isSuggestingFix: boolean
   failureScenario: string | null
+  /** Whether fixing it changes what others rely on; null when its reviewer did not judge it, as /code-review cannot. */
+  isBehaviourChange: boolean | null
   category: string | null
   /** The Clean Code rule it breaks, e.g. `G30`; tallied when dismissed, to show which rules keep missing. */
   rule: string | null
