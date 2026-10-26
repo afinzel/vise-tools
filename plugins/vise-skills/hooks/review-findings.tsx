@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FindingSource, FindingStatus, FindingsReviewKind, FindingsRound, PullRequestRef, ReviewFinding, RuleTally } from '../types'
+import { BEHAVIOUR_CHANGE_DEFINITION } from './behaviour-change'
 import { REPOSITORY_ROOT_ARGV, fileAtHeadArgv, parsePullRequest, parsePullRequestTarget, pullRequestViewArgv } from './review-comments/github-threads'
 import {
   bySeverity,
@@ -123,6 +124,7 @@ export async function registerFindingsTools($: EngineInterface) {
               rule: { type: 'string', description: 'Clean Code findings only: the rule id from clean-code-rules.md, e.g. G30.' },
               suggested_fix: { type: 'string', description: 'The change that would settle it: at most three sentences, or a short snippet with one line on what it changes.' },
               severity: { enum: ['high', 'medium', 'low'], description: 'high: wrong behaviour, data loss or a security hole; medium: a real cost a reviewer would ask to fix; low: style and readability.' },
+              is_behaviour_change: { type: 'boolean', description: `${BEHAVIOUR_CHANGE_DEFINITION} Leave out when the reviewer did not judge it.` },
             },
           },
         },

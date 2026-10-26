@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 
 import type { CodeReference, PullRequestRef, ReferenceExcerpt, ReviewSession, ReviewThread, ThreadOutcome, TriageInput } from '../types'
+import { BEHAVIOUR_CHANGE_DEFINITION } from './behaviour-change'
 import {
   CURRENT_BRANCH_ARGV,
   REPOSITORY_ROOT_ARGV,
@@ -169,7 +170,7 @@ export async function registerReviewSidebarCommandAndTools($: EngineInterface) {
               scopeReason: { type: 'string', description: 'A few words on what drives the scope, e.g. "touches 3 call sites".' },
               summary: { type: 'string', description: 'The fix in one short line (under 60 characters), e.g. "Reject Unset after TryParse"; for push-back, "No change: <why>".' },
               suggestion: { type: 'string', description: 'Markdown: the concrete fix, the options with a recommendation, or the push-back reasoning.' },
-              isBehaviourChange: { type: 'boolean', description: 'True when the fix changes what the code does at run time, not only its shape (names, comments, formatting, dead code).' },
+              isBehaviourChange: { type: 'boolean', description: BEHAVIOUR_CHANGE_DEFINITION },
               sameAs: { type: 'number', description: 'The number of a thread with the same root cause; deciding that one settles this one too.' },
               options: {
                 type: 'array',

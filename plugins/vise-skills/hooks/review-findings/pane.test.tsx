@@ -172,6 +172,33 @@ test('self-review: waits on each reviewer, fixes ticked findings through Claude,
   expect(await ui.find({ text: /ship does two things · fixed/ })).toBeDefined()
 })
 
+test('self-review: a finding whose fix changes behaviour is marked ⚡, and an opened one says either way', async ($, on) => {
+  github(on)
+
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'self' } as never)
+  await $.tool.call({
+    tool: 'mcp__vise-skills__findings_record',
+    kind: 'self',
+    source: 'claude',
+    findings: [
+      { file: 'src/orders.ts', line: 11, summary: 'Writes are no longer atomic.', short_summary: 'Not atomic', severity: 'high', suggested_fix: 'x', is_behaviour_change: true },
+      { file: 'src/orders.ts', line: 12, summary: 'Log line misspelt.', short_summary: 'Typo in log', severity: 'low', suggested_fix: 'x', is_behaviour_change: false },
+      { file: 'src/orders.ts', line: 13, summary: 'Unjudged.', short_summary: 'Unjudged', severity: 'low', suggested_fix: 'x' },
+    ],
+  } as never)
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'self-review', props: PANE_PROPS })
+
+  expect((await ui.find({ key: 'expand-claude-1' }))?.text).toMatch(/^🔥 high · ⚡ Not atomic/)
+  expect((await ui.find({ key: 'expand-claude-2' }))?.text).toMatch(/^🧹 low · Typo in log/)
+
+  await ui.press({ key: 'expand-claude-1' })
+  expect(await ui.find({ text: /⚡ Fixing it changes behaviour/ })).toBeDefined()
+  await ui.press({ key: 'expand-claude-2' })
+  expect(await ui.find({ text: /Fixing it leaves behaviour alone/ })).toBeDefined()
+  await ui.press({ key: 'expand-claude-3' })
+  expect(await ui.find({ text: /Fixing it (changes|leaves) behaviour/ })).toBeUndefined()
+})
+
 test('self-review: a rule dismissed again and again is listed for rewording', async ($, on) => {
   const { store } = github(on)
   store.set('cleanCodeRuleTallies', { G25: { raised: 4, dismissed: 1 } })

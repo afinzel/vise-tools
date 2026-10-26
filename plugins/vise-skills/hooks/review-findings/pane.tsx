@@ -103,6 +103,7 @@ function drawFinding(ui: ElementTable, kind: FindingsReviewKind, round: Findings
         </Button>
         <Button key={`expand-${finding.id}`} plain onPress={() => actions.expand(finding.id)}>
           {drawSeverity(ui, finding)}{' · '}
+          {finding.isBehaviourChange === true ? '⚡ ' : ''}
           {finding.shortSummary} <Text dimColor>{`${locationOf(finding)} · ${tagOf(finding)}${finding.status === 'fixing' ? ' · fixing…' : ''}`}</Text>
         </Button>
       </Box>
@@ -122,6 +123,8 @@ function drawDetail(ui: ElementTable, kind: FindingsReviewKind, round: FindingsR
       {finding.excerpt !== null && <Code source={finding.excerpt.source} path={finding.file} startLine={finding.excerpt.startLine} format={finding.excerpt.format} />}
       <Text>{finding.summary}</Text>
       {finding.failureScenario !== null && <Text dimColor>{finding.failureScenario}</Text>}
+      {finding.isBehaviourChange === true && <Text color="yellow">⚡ Fixing it changes behaviour</Text>}
+      {finding.isBehaviourChange === false && <Text dimColor>Fixing it leaves behaviour alone</Text>}
       {finding.isSuggestingFix && <Text dimColor>Suggesting a fix…</Text>}
       {finding.suggestedFix !== null && <Text bold>Suggested fix</Text>}
       {finding.suggestedFix !== null && <Text>{finding.suggestedFix}</Text>}

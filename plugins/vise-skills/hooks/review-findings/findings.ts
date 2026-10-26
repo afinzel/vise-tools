@@ -12,6 +12,7 @@ export type ReportedFinding = {
   rule?: string
   severity?: string
   suggested_fix?: string
+  is_behaviour_change?: boolean
 }
 
 export type ReviewComment = { path: string; line: number; side: 'RIGHT'; body: string }
@@ -53,6 +54,7 @@ export function findingsFrom(source: FindingSource, reported: readonly ReportedF
     suggestedFix: finding.suggested_fix?.trim() || null,
     isSuggestingFix: false,
     failureScenario: finding.failure_scenario?.trim() || null,
+    isBehaviourChange: finding.is_behaviour_change ?? null,
     category: finding.category ?? null,
     rule: finding.rule?.trim().toUpperCase() || null,
     status: 'open',
@@ -166,6 +168,7 @@ export function fixPrompt(kind: FindingsReviewKind, findings: readonly ReviewFin
     '',
     ...findings.flatMap(finding => [
       `- ${listLine(finding)}`,
+      ...(finding.isBehaviourChange === false ? ['  No behaviour change: callers must see exactly what they see today.'] : []),
       ...(finding.suggestedFix === null ? [] : [`  Suggested fix (a starting point, not a given): ${finding.suggestedFix}`]),
     ]),
     '',
@@ -186,6 +189,7 @@ export function withCurrentFields(finding: ReviewFinding): ReviewFinding {
     suggestedFix: recorded.suggestedFix ?? null,
     isSuggestingFix: recorded.isSuggestingFix ?? false,
     excerpt: recorded.excerpt ?? null,
+    isBehaviourChange: recorded.isBehaviourChange ?? null,
   }
 }
 
