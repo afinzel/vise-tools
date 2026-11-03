@@ -183,7 +183,12 @@ tabs with `wt`.
   `ReportFindings` tool, while a review round is open. A re-report after fixes is
   skipped.
 - **The other reviewers:** they reach it through `findings_record`.
-- **Posting:** sends one `gh api …/reviews` call with the review as JSON on stdin.
+- **Posting:** sends one `gh api …/reviews` call with the review as JSON on stdin. Each finding
+  posts once: it is marked `posting` before the call, so a second Submit finds nothing to send,
+  and one whose words are already in a comment on its file is skipped. The PR's head and diff are
+  read again first, so fixes pushed since the round started don't misplace a comment. A finding on
+  a line the diff doesn't show goes inline on the nearest line it does, marked `**Line N** (outside
+  the diff)`; only a file the PR doesn't change sends a finding to the review body.
 - **Rule tallies:** kept in the plugin's store, so they last across sessions.
 
 ### review sidebar

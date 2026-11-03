@@ -131,9 +131,10 @@ export type FindingSeverity = 'high' | 'medium' | 'low'
 /**
  * `queued` waits in the review being built; Submit posts every queued finding as one review.
  * `dismissed` is the user rejecting a finding, and counts against its rule; `withdrawn` is Claude
- * finding it does not hold up, and does not.
+ * finding it does not hold up, and does not. `posting` holds a finding while its review is on the
+ * way to GitHub, so a second Submit cannot send it again.
  */
-export type FindingStatus = 'open' | 'queued' | 'fixing' | 'fixed' | 'posted' | 'dismissed' | 'withdrawn' | 'declined-before'
+export type FindingStatus = 'open' | 'queued' | 'fixing' | 'fixed' | 'posting' | 'posted' | 'dismissed' | 'withdrawn' | 'declined-before'
 
 /** A finding the user dismissed in an earlier round on the same PR, kept so a later round does not raise it again. */
 export type DeclinedFinding = { file: string; line: number | null; summary: string; rule: string | null; declinedOn: string }

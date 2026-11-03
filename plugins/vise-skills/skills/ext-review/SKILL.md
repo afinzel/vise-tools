@@ -32,4 +32,4 @@ When a **More info** prompt arrives, answer it in chat without editing anything.
 
 The VS Code panel draws no panes. Here, list the findings in chat, each with its severity icon (🔥 high, ⚠️ medium, 🧹 low), id, location and summary. Then ask with `AskUserQuestion` (`multiSelect: true`) which to post. Call `mcp__vise-skills__findings_post` with exactly those, and give the user the review link from its answer.
 
-Lines the PR's diff does not show cannot take an inline comment. Those go in the review's body with their file and line. Say so when it happens.
+Post only through `findings_post`, never with `gh api`. It puts a finding on a line the diff does not show on the nearest line it does, marked with the line it means, and skips any finding already on the PR. Only a finding in a file the PR does not change, or with no line, goes in the review's body. Say so when that happens.

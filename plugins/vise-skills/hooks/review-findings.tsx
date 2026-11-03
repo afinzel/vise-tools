@@ -15,8 +15,11 @@ import {
   findingExcerpt,
   findingsFrom,
   fixPrompt,
+  isAlreadyPosted,
   isInfo,
   isTrivialFix,
+  parsePostedComments,
+  postedCommentsArgv,
   nextOpenAfter,
   oftenDismissedRules,
   pullRequestDiffArgv,
@@ -143,7 +146,7 @@ export async function registerFindingsTools($: EngineInterface) {
   })
   await $.tool.register({
     name: 'findings_post',
-    description: 'Posts findings to the PR as one GitHub review under the user\'s name: inline where the diff shows the line, in the review body otherwise. A `note` leads the comment, e.g. what a fix changed. Post only what the user chose.',
+    description: 'Posts findings to the PR as one GitHub review under the user\'s name, each once: inline on its line, or on the nearest line the diff shows; in the review body only when its file is not in the diff. A finding already on the PR is skipped. A `note` leads the comment, e.g. what a fix changed. Post only what the user chose, and only through this tool, never with gh api.',
     inputSchema: {
       type: 'object',
       required: ['kind', 'items'],
@@ -318,16 +321,73 @@ async function submitQueued($: EngineInterface, kind: FindingsReviewKind) {
   $.ui.toast(await postReview($, kind, queuedIds, {}))
 }
 
+/**
+ * Posts each finding once. A finding is claimed before anything is sent, so a second Submit while
+ * the first is in flight finds nothing left to post; and one already on the PR, from any round or
+ * session, is not sent again.
+ */
 async function postReview($: EngineInterface, kind: FindingsReviewKind, ids: readonly string[], notes: Record<string, string>): Promise<string> {
-  const round = await readRound($, kind)
-  if (round.pullRequest === null) return 'Nothing posted: this branch has no PR.'
-  const chosen = round.findings.filter(finding => ids.includes(finding.id))
-  if (chosen.length === 0) return 'Nothing posted: no finding has those ids.'
-  const run = await $.process.run(reviewPostArgv(round.pullRequest), { stdin: JSON.stringify(reviewPayload(round.pullRequest, chosen, round.commentableLines, notes)), timeoutMs: 30_000 })
-  if (run.exitCode !== 0) return `GitHub refused the review: ${run.stderr.trim() || `exit ${run.exitCode}`}`
+  const { pullRequest } = await readRound($, kind)
+  if (pullRequest === null) return 'Nothing posted: this branch has no PR.'
+  const claimed = await claimForPosting($, kind, ids)
+  if (claimed.length === 0) return 'Nothing posted: those findings are already posted or on their way.'
+  const current = await currentPullRequest($, kind, pullRequest)
+  const alreadyThere = claimed.filter(({ finding }) => isAlreadyPosted(finding, current.posted))
+  const toPost = claimed.filter(claim => !alreadyThere.includes(claim))
+  await markPosted($, kind, alreadyThere.map(({ finding }) => finding.id), null)
+  if (toPost.length === 0) return `Nothing posted: all ${alreadyThere.length} are already on the PR.`
+  const run = await $.process.run(reviewPostArgv(current.pullRequest), { stdin: JSON.stringify(reviewPayload(current.pullRequest, toPost.map(({ finding }) => finding), current.commentable, notes)), timeoutMs: 30_000 })
+  if (run.exitCode !== 0) {
+    await releaseClaims($, kind, toPost)
+    return `GitHub refused the review: ${run.stderr.trim() || `exit ${run.exitCode}`}`
+  }
   const reviewUrl = (JSON.parse(run.stdout) as { html_url?: string }).html_url ?? null
+  await markPosted($, kind, toPost.map(({ finding }) => finding.id), reviewUrl)
+  const skipped = alreadyThere.length === 0 ? '' : ` (${alreadyThere.length} already on the PR, not sent again)`
+  return `Posted ${toPost.length} findings as a review${skipped}${reviewUrl === null ? '' : `: ${reviewUrl}`}`
+}
+
+type Claim = { finding: ReviewFinding; previousStatus: FindingStatus }
+
+/** Marks the findings `posting` in one update, taking only those not already posted or posting. */
+async function claimForPosting($: EngineInterface, kind: FindingsReviewKind, ids: readonly string[]): Promise<Claim[]> {
+  let claims: Claim[] = []
+  await updateFindings($, kind, findings => {
+    claims = findings
+      .filter(finding => ids.includes(finding.id) && finding.status !== 'posting' && finding.status !== 'posted')
+      .map(finding => ({ finding, previousStatus: finding.status }))
+    const claimedIds = claims.map(({ finding }) => finding.id)
+    return findings.map(finding => (claimedIds.includes(finding.id) ? { ...finding, status: 'posting', isSelected: false } : finding))
+  })
+  return claims
+}
+
+async function releaseClaims($: EngineInterface, kind: FindingsReviewKind, claims: readonly Claim[]) {
+  await updateFindings($, kind, findings => findings.map(finding => {
+    const claim = claims.find(({ finding: claimed }) => claimed.id === finding.id)
+    return claim === undefined ? finding : { ...finding, status: claim.previousStatus }
+  }))
+}
+
+async function markPosted($: EngineInterface, kind: FindingsReviewKind, ids: readonly string[], reviewUrl: string | null) {
   await updateFindings($, kind, findings => findings.map(finding => (ids.includes(finding.id) ? { ...finding, status: 'posted', isSelected: false, commentUrl: reviewUrl } : finding)))
-  return `Posted ${chosen.length} findings as a review${reviewUrl === null ? '' : `: ${reviewUrl}`}`
+}
+
+/**
+ * The PR as it is now, not as it was when the round started: fixes pushed since move the head and
+ * the lines the diff shows. Falls back to what the round loaded when GitHub cannot be read.
+ */
+async function currentPullRequest($: EngineInterface, kind: FindingsReviewKind, loaded: PullRequestRef) {
+  const round = await readRound($, kind)
+  const view = await stdoutOf($, pullRequestViewArgv(loaded.url))
+  const pullRequest = view === null ? loaded : parsePullRequest(view)
+  const diff = await stdoutOf($, pullRequestDiffArgv(pullRequest))
+  const comments = await stdoutOf($, postedCommentsArgv(pullRequest))
+  return {
+    pullRequest,
+    commentable: diff === null ? round.commentableLines : commentableLines(diff),
+    posted: comments === null ? [] : parsePostedComments(comments),
+  }
 }
 
 async function submitFix($: EngineInterface, kind: FindingsReviewKind, ids: readonly string[], options: { isCommenting: boolean }) {

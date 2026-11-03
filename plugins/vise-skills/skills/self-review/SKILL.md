@@ -122,6 +122,8 @@ Then stop.
 
 When a Fix prompt arrives from the pane, follow it as written. It ends with `findings_mark` (and, for Fix + comment, `findings_post` with a `note` per finding).
 
+**Post only through `findings_post`.** Never post a finding with `gh api` or `gh pr comment`. The tool puts every finding inline, on its own line or the nearest line the diff shows, refreshes the PR head first, and skips any finding already on the PR. A hand-made post gets none of that. Do not post a finding only to answer it: a finding the user declines is dismissed, not posted with a reply.
+
 ## 4. Ready for review
 
 PRs open as drafts, and leaving draft is the signal that the PR is handed over: the Jira ticket's

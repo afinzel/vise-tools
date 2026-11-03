@@ -32,6 +32,7 @@ const STATUS_LABELS: Record<FindingStatus, string> = {
   queued: 'in the review',
   fixing: 'fixing…',
   fixed: 'fixed',
+  posting: 'posting…',
   posted: 'posted',
   dismissed: 'dismissed',
   withdrawn: 'withdrawn by Claude',
