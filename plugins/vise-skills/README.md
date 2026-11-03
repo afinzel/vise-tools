@@ -203,6 +203,10 @@ starts as Claude's call and is yours to flip. **Fix N trivial (no behaviour chan
 and **Step through** opens the next thread waiting on you. A band above the prompt
 shows progress.
 
+Review summaries and PR conversation comments join the walk too: Claude splits each into
+its separate points (quoting the reviewer verbatim) and adds them after the threads with
+`review_add_points`. With no thread to resolve, they're answered in the PR conversation.
+
 The buttons send your decision to Claude as a prompt; Claude reports back through the
 mod's `review_triage` and `review_mark` tools, and the sidebar re-reads GitHub after
 each fix so a tick means a resolved thread. It reads code from your working tree when

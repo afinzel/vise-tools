@@ -208,3 +208,42 @@ test('review_threads tells Claude when nothing can show the sidebar', async ($, 
   expect(JSON.parse(String(answer.result)).sidebar).toEqual({ isShown: false, reason: 'the attached surfaces place no panes' })
 })
 
+
+const WITH_GENERAL_FEEDBACK = {
+  data: { repository: { pullRequest: {
+    ...THREADS.data.repository.pullRequest,
+    reviews: { nodes: [{ id: 'R1', author: { login: 'ana' }, body: '- Rename the flag\n- Why a new table?', url: 'https://github.com/r/1' }] },
+    comments: { nodes: [] },
+  } } },
+}
+
+test('general feedback is split into points that join the walk after the threads', async ($, on) => {
+  on('process.run', async ($, e) => ({
+    value: {
+      exitCode: 0,
+      stdout: e.argv[2] === 'graphql' ? JSON.stringify(WITH_GENERAL_FEEDBACK) : fakeGitHub(e.argv),
+      stderr: '', isStdoutTruncated: false, isStderrTruncated: false,
+    },
+  }))
+  on('ui.open', async () => ({ value: { isPlaced: true as const } }))
+
+  const before = await $.tool.call({ tool: 'mcp__vise-skills__review_threads' } as never) as { result?: unknown }
+  expect(JSON.parse(String(before.result)).generalFeedback.map((source: { id: string }) => source.id)).toEqual(['R1'])
+
+  const added = await $.tool.call({
+    tool: 'mcp__vise-skills__review_add_points',
+    points: [
+      { sourceId: 'R1', quote: '- Rename the flag', path: 'src/Api/CurrencyHeader.cs', line: 2 },
+      { sourceId: 'R1', quote: '- Why a new table?' },
+    ],
+  } as never) as { result?: unknown }
+  expect(String(added.result)).toMatch(/^Added \[4\], \[5\]\./)
+
+  const after = await $.tool.call({ tool: 'mcp__vise-skills__review_threads' } as never) as { result?: unknown }
+  const answer = JSON.parse(String(after.result))
+  expect(answer.generalFeedback).toEqual([])
+  expect(answer.threads.map((thread: { id: string }) => thread.id)).toEqual(['T1', 'T2', 'T3', 'R1#1', 'R1#2'])
+
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'review-comments', props: PANE_PROPS })
+  expect(await ui.find({ text: /\[5\] review summary/ })).toBeDefined()
+})

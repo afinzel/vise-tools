@@ -1,7 +1,17 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 
-import type { CodeReference, PullRequestRef, ReferenceExcerpt, ReviewSession, ReviewThread, ThreadOutcome, TriageInput } from '../types'
+import type {
+  CodeReference,
+  GeneralFeedback,
+  GeneralPointInput,
+  PullRequestRef,
+  ReferenceExcerpt,
+  ReviewSession,
+  ReviewThread,
+  ThreadOutcome,
+  TriageInput,
+} from '../types'
 import { BEHAVIOUR_CHANGE_DEFINITION } from './behaviour-change'
 import {
   CURRENT_BRANCH_ARGV,
@@ -10,11 +20,13 @@ import {
   fileAtHeadArgv,
   parsePullRequest,
   parsePullRequestTarget,
+  parseGeneralFeedback,
   parseThreads,
   referenceExcerpt,
   pullRequestViewArgv,
   sortByLocation,
   threadsQueryArgv,
+  toGeneralPoint,
   toReviewThread,
 } from './review-comments/github-threads'
 import type { GraphQlThread, PullRequestTarget } from './review-comments/github-threads'
@@ -38,8 +50,9 @@ const PANE_TITLE = 'Review comments'
 const TOOL_THREADS = 'mcp__vise-skills__review_threads'
 const TOOL_TRIAGE = 'mcp__vise-skills__review_triage'
 const TOOL_MARK = 'mcp__vise-skills__review_mark'
+const TOOL_ADD_POINTS = 'mcp__vise-skills__review_add_points'
 
-const EMPTY_REVIEW: ReviewSession = { pullRequest: null, threads: [], workingTreeRoot: null, error: null, isLoading: false }
+const EMPTY_REVIEW: ReviewSession = { pullRequest: null, threads: [], generalFeedback: [], workingTreeRoot: null, error: null, isLoading: false }
 
 const review = atom({ plugin: 'vise-skills', key: 'review' } as const, EMPTY_REVIEW)
 const triage = atom({ plugin: 'vise-skills', key: 'triage' } as const, {})
@@ -75,6 +88,14 @@ export const registerReviewSidebar: Register = on => {
     const placement = await $.ui.open({ id: PANE, title: PANE_TITLE })
     const loaded = await read($, review)
     return loaded.error === null ? { result: threadsForClaude(loaded, placement) } : { deny: loaded.error }
+  }))
+
+  on('tool.call', { tool: TOOL_ADD_POINTS }, async ($, e) => answeredOrDenied('review sidebar', async () => {
+    const { points } = toolArguments<{ points: GeneralPointInput[] }>(e)
+    const { added, unknownSources } = await addGeneralPoints($, points)
+    const numbers = added.map(thread => `[${thread.number}]`).join(', ')
+    const unknown = unknownSources.length === 0 ? '' : ` No general feedback with id ${unknownSources.join(', ')}.`
+    return { result: `Added ${numbers || 'nothing'}.${unknown} Triage them with review_triage like any thread.` }
   }))
 
   on('tool.call', { tool: TOOL_TRIAGE }, async ($, e) => answeredOrDenied('review sidebar', async () => {
@@ -147,6 +168,30 @@ export async function registerReviewSidebarCommandAndTools($: EngineInterface) {
       properties: {
         pr: { type: 'string', description: 'A PR number or GitHub PR URL; omit for the current branch\'s PR.' },
         refresh: { type: 'boolean' },
+      },
+    },
+    isDeferred: false,
+  })
+  await $.tool.register({
+    name: 'review_add_points',
+    description: 'Add the points you split out of the general feedback review_threads returned (review summaries and PR conversation comments) to the sidebar, one item per point, numbered after the threads. Then triage them with review_triage like any thread.',
+    inputSchema: {
+      type: 'object',
+      required: ['points'],
+      properties: {
+        points: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['sourceId', 'quote'],
+            properties: {
+              sourceId: { type: 'string', description: 'The `id` of the general feedback this point comes from.' },
+              quote: { type: 'string', description: 'The reviewer\'s words for this one point, verbatim: the sentence, bullet or paragraph that makes it.' },
+              path: { type: 'string', description: 'Repository-relative path of the code the point is about, when it names some.' },
+              line: { type: 'number', description: 'The line in `path` it is about, when that is clear.' },
+            },
+          },
+        },
       },
     },
     isDeferred: false,
@@ -233,6 +278,7 @@ async function loadReview($: EngineInterface, requested: PullRequestTarget, { is
     await update($, review, current => ({
       pullRequest: fetched.pullRequest,
       threads: mergeIntoWorkingSet(isFreshStart ? [] : current.threads, fetched.threads),
+      generalFeedback: fetched.generalFeedback,
       workingTreeRoot: fetched.workingTreeRoot,
       error: null,
       isLoading: false,
@@ -242,16 +288,17 @@ async function loadReview($: EngineInterface, requested: PullRequestTarget, { is
   }
 }
 
-type FetchedReview = { pullRequest: PullRequestRef; threads: ReviewThread[]; workingTreeRoot: string | null }
+type FetchedReview = { pullRequest: PullRequestRef; threads: ReviewThread[]; generalFeedback: GeneralFeedback[]; workingTreeRoot: string | null }
 
 async function fetchReview($: EngineInterface, requested: PullRequestTarget): Promise<FetchedReview> {
   const pullRequest = parsePullRequest(await runOrThrow($, pullRequestViewArgv(requested)))
   const workingTreeRoot = await workingTreeOfBranch($, pullRequest.headBranch)
-  const rawThreads = parseThreads(await runOrThrow($, threadsQueryArgv(pullRequest)))
+  const response = await runOrThrow($, threadsQueryArgv(pullRequest))
+  const rawThreads = parseThreads(response)
   const threads = await Promise.all(
     rawThreads.map(async raw => toReviewThread(raw, await readAnchoredFile($, raw, pullRequest, workingTreeRoot))),
   )
-  return { pullRequest, threads: sortByLocation(threads), workingTreeRoot }
+  return { pullRequest, threads: sortByLocation(threads), generalFeedback: parseGeneralFeedback(response), workingTreeRoot }
 }
 
 /**
@@ -306,6 +353,43 @@ async function resetWalk($: EngineInterface) {
   await update($, outcomes, () => ({}))
   await update($, behaviourOverrides, () => ({}))
   await update($, expandedThreadId, () => null)
+}
+
+/**
+ * Each point joins the working set as a thread numbered after the rest. Its id is the source's id
+ * plus a count, so a comment split across several calls still gives every point its own id.
+ */
+async function addGeneralPoints($: EngineInterface, points: GeneralPointInput[]) {
+  const loaded = await read($, review)
+  const sourcesById = new Map(loaded.generalFeedback.map(source => [source.id, source]))
+  const unknownSources = [...new Set(points.filter(point => !sourcesById.has(point.sourceId)).map(point => point.sourceId))]
+  const known = points.filter(point => sourcesById.has(point.sourceId))
+  const pointCounts = new Map<string, number>()
+  for (const thread of loaded.threads) {
+    const sourceId = sourceIdOfGeneralPoint(thread)
+    if (sourceId !== null) pointCounts.set(sourceId, (pointCounts.get(sourceId) ?? 0) + 1)
+  }
+  const pointIds = known.map(point => {
+    const count = (pointCounts.get(point.sourceId) ?? 0) + 1
+    pointCounts.set(point.sourceId, count)
+    return `${point.sourceId}#${count}`
+  })
+  const highestNumber = Math.max(0, ...loaded.threads.map(thread => thread.number))
+  const added = await Promise.all(known.map(async (point, index) => {
+    const fileText = await readPointFile($, point, loaded)
+    return { ...toGeneralPoint(sourcesById.get(point.sourceId)!, point, pointIds[index]!, fileText), number: highestNumber + index + 1 }
+  }))
+  await update($, review, current => ({ ...current, threads: [...current.threads, ...added] }))
+  return { added, unknownSources }
+}
+
+function sourceIdOfGeneralPoint(thread: ReviewThread): string | null {
+  return thread.generalSource === undefined ? null : thread.id.slice(0, thread.id.lastIndexOf('#'))
+}
+
+async function readPointFile($: EngineInterface, point: GeneralPointInput, loaded: ReviewSession): Promise<string | null> {
+  if (point.path === undefined || point.line === undefined || loaded.pullRequest === null) return null
+  return readReviewedFile($, point.path, loaded.pullRequest, loaded.workingTreeRoot)
 }
 
 async function recordTriage($: EngineInterface, items: TriageInput[]): Promise<number[]> {
@@ -465,7 +549,14 @@ function threadsForClaude(loaded: ReviewSession, placement: UiOpenResult): strin
     sidebar: placement.isPlaced ? { isShown: true } : { isShown: false, reason: placement.reason },
     pullRequest: loaded.pullRequest,
     threads: loaded.threads.map(({ excerpt, ...thread }) => thread),
+    generalFeedback: feedbackNotYetSplit(loaded),
   })
+}
+
+/** General feedback Claude has not split into points yet, so a second review_threads call does not add them twice. */
+function feedbackNotYetSplit(loaded: ReviewSession): GeneralFeedback[] {
+  const splitSources = new Set(loaded.threads.map(sourceIdOfGeneralPoint))
+  return loaded.generalFeedback.filter(source => !splitSources.has(source.id))
 }
 
 function isSamePullRequest(loaded: PullRequestRef | null, requested: string): boolean {

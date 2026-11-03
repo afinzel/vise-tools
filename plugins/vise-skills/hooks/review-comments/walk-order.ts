@@ -102,5 +102,16 @@ export function progressCounts(views: readonly ThreadView[]) {
 }
 
 export function locationOf(thread: ReviewThread): string {
-  return thread.line === null ? thread.path : `${thread.path}:${thread.line}`
+  const place = thread.line === null ? thread.path : `${thread.path}:${thread.line}`
+  if (thread.generalSource === undefined) return place
+  const source = generalSourceLabel(thread)
+  return place === '' ? source : `${source}, ${place}`
+}
+
+export function generalSourceLabel(thread: ReviewThread): string {
+  return thread.generalSource === 'review-summary' ? 'review summary' : 'PR comment'
+}
+
+export function isGeneralPoint(view: ThreadView): boolean {
+  return view.thread.generalSource !== undefined
 }

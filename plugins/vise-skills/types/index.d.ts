@@ -12,9 +12,19 @@ export type ReviewComment = { author: string; body: string; url: string }
 
 export type CodeExcerpt = { source: string; startLine?: number; format: 'source' | 'diff' }
 
+/** Feedback left outside a code thread: the text of an Approve / Request-changes review, or a conversation comment. */
+export type GeneralFeedbackKind = 'review-summary' | 'conversation'
+
+/** One general comment as GitHub holds it, before Claude splits it into points. */
+export type GeneralFeedback = { id: string; kind: GeneralFeedbackKind; author: string; body: string; url: string }
+
+/** One point Claude split out of a general comment: its words verbatim, and the code it is about when it names some. */
+export type GeneralPointInput = { sourceId: string; quote: string; path?: string; line?: number }
+
 export type ReviewThread = {
   id: string
   number: number
+  /** Repository-relative path; empty for a general point that names no file. */
   path: string
   line: number | null
   isOutdated: boolean
@@ -22,6 +32,11 @@ export type ReviewThread = {
   url: string
   comments: ReviewComment[]
   excerpt: CodeExcerpt | null
+  /**
+   * Set when this is a point split out of general feedback rather than an inline thread. Such a
+   * point has no thread on GitHub to reply on or resolve: it is answered in the PR conversation.
+   */
+  generalSource?: GeneralFeedbackKind
 }
 
 export type TriageBucket = 'trivial' | 'discuss' | 'push-back'
@@ -63,6 +78,8 @@ export type ThreadOutcome = 'in-progress' | 'fixed-locally' | 'fixed' | 'pushed-
 export type ReviewSession = {
   pullRequest: PullRequestRef | null
   threads: ReviewThread[]
+  /** Review summaries and conversation comments with content, for Claude to split into points. */
+  generalFeedback: GeneralFeedback[]
   /** Where to read code from: the repository root when the PR's branch is checked out, else null (read the PR head). */
   workingTreeRoot: string | null
   error: string | null

@@ -10,7 +10,7 @@ The point of this skill is to give the user the **raw** comments — their revie
 
 ## The flow
 
-1. Fetch every unresolved thread (step 1–2).
+1. Fetch every unresolved thread, and split the general feedback — review summaries and PR conversation comments — into separate points that join the walk (step 1–2).
 2. Read the code each one points at and triage it (step 3): a bucket, a scope, a suggestion, and whether the fix **changes behaviour**.
 3. **Quick fixes first.** Trivial threads whose fix does not change behaviour can be fixed together on one go-ahead.
 4. **Then step through the rest one at a time** — trivial ones that do change behaviour, then 💬 Discuss, then ⚠️ Push back. For each: the code, the comment verbatim, the suggestion, then the user's decision.
@@ -36,7 +36,7 @@ If the user says they can't see the sidebar, believe them over the flag and swit
 
 ## 2. Fetch unresolved review threads
 
-**Sidebar route:** call `mcp__vise-skills__review_threads` (with `pr` when the user named one). It loads the PR into the sidebar and returns the threads, already numbered as the sidebar shows them — use those numbers everywhere. Then fetch the non-inline feedback below with `gh`.
+**Sidebar route:** call `mcp__vise-skills__review_threads` (with `pr` when the user named one). It loads the PR into the sidebar and returns the threads, already numbered as the sidebar shows them — use those numbers everywhere — plus `generalFeedback`: the review summaries and PR conversation comments not yet split into points (see below).
 
 **Otherwise, GraphQL.** GitHub's resolved/unresolved state lives on **review threads** and is only exposed via the GraphQL API — `gh pr view` and the REST comments endpoint do **not** report it. Get `owner`/`repo` with `gh repo view --json owner,name -q '.owner.login + "/" + .name'`, query, and filter to `isResolved: false`. Keep each thread's `id` — you need it to reply and resolve.
 
@@ -67,16 +67,22 @@ Each thread may have several comments (a back-and-forth) — preserve the whole 
 
 **Pagination:** the query caps at 100 threads / 50 comments per thread. If a PR has a full 100 threads, add `pageInfo { hasNextPage endCursor }` to the `reviewThreads` connection and follow the cursor rather than silently truncating.
 
-### Also fetch non-inline feedback
+### General feedback: split it into points and add them
 
-Inline `reviewThreads` miss two places reviewers leave important notes — pull these too so nothing is dropped:
+Inline `reviewThreads` miss two places reviewers leave important notes, and they get the same treatment as a thread — nothing in them is dropped:
 
-- **Review summary bodies** — the text in the Approve / Request-changes box: `pullRequest { reviews(first:50) { nodes { author { login } body state url } } }`. Skip reviews with an empty `body`.
-- **General conversation comments** — not anchored to code: `pullRequest { comments(first:100) { nodes { author { login } body url } } }`.
+- **Review summary bodies** — the text in the Approve / Request-changes box.
+- **PR conversation comments** — not anchored to code.
 
-These have no resolved/unresolved state. Show any with content once, up front, under **"General feedback (not a code thread)"**. They don't go into the sidebar or the walk, and are never resolved.
+The sidebar route gets both as `generalFeedback`, with empty bodies and Claude's own `🤖` replies already removed. Otherwise add them to the GraphQL query: `reviews(first:50) { nodes { id author { login } body url } }` and `comments(first:100) { nodes { id author { login } body url } }`, and drop the same two.
 
-If there are zero unresolved threads and no general feedback, say so plainly and stop.
+**Split each one into its points.** A summary often carries several asks — a bulleted list, or one paragraph per concern. Each separate ask becomes its own item: its `quote` is the reviewer's words for that point **verbatim** (the bullet, sentence or paragraph that makes it — never a paraphrase). A comment that makes one point is one item. Leave out text that asks nothing (`LGTM`, `Thanks!`, a greeting before the list). When a point names code, give its `path` and, if clear, `line`, so the sidebar shows the code.
+
+**Skip what's already answered.** A general comment followed in the conversation by a `🤖` reply that quotes or links it was handled in an earlier round — leave it out.
+
+**Sidebar route:** add every point with one `mcp__vise-skills__review_add_points` call (`sourceId` is the feedback's `id`). The points are numbered after the threads and walk like them; triage them in the same `review_triage` call as the threads. **Chat route:** number them after the threads and walk them the same way, labelled `review summary` or `PR comment` in place of a file.
+
+If there are zero unresolved threads and no general points, say so plainly and stop.
 
 ## 3. Triage
 
@@ -98,7 +104,7 @@ For every thread, decide:
 - **Options** — for a thread with more than one reasonable fix, the choices the user picks between, each with a short label (`(a) shared check, product+variant geo`), its own scope and behaviour flag, and one marked recommended. Sub-choices become options of their own (`(a) … product+variant geo`, `(a) … variant only`). Leave options out when there's one clear fix.
 - **References** — other code the decision depends on, beyond the commented line: another call site, the other side of a drift (`CountryRules.cs:49`, the basket's version of the check). Give the path, line range and a one-line caption saying why it matters.
 
-**Sidebar route:** record all of it with one `mcp__vise-skills__review_triage` call (`number`, `bucket`, `scope`, `scopeReason`, `summary`, `suggestion` as markdown, `isBehaviourChange`, `sameAs`, `options`, `references`). The sidebar shows each option as a button and reads each reference's code itself, so the suggestion text doesn't need to quote the code or repeat the option list as a question. Then post one short message in chat — the general feedback, if any, then the counts, e.g. `5 threads: 1 trivial without behaviour change, 1 trivial with, 2 discuss, 1 push back — they're in the sidebar.` — and stop. Don't render the comments in chat; the sidebar holds them.
+**Sidebar route:** record all of it with one `mcp__vise-skills__review_triage` call (`number`, `bucket`, `scope`, `scopeReason`, `summary`, `suggestion` as markdown, `isBehaviourChange`, `sameAs`, `options`, `references`). The sidebar shows each option as a button and reads each reference's code itself, so the suggestion text doesn't need to quote the code or repeat the option list as a question. Then post one short message in chat with the counts, e.g. `5 threads and 2 points from general feedback: 1 trivial without behaviour change, 2 trivial with, 3 discuss, 1 push back — they're in the sidebar.` — and stop. Don't render the comments in chat; the sidebar holds them.
 
 ## 4. Chat route: present it
 
@@ -169,6 +175,8 @@ Fall back to fixing in the main conversation only when the Agent tool isn't avai
 **Push back** needs no code, so it's answered straight away: reply with the reasoning, prefixed `🤖 Claude: …`, leave the thread unresolved unless the user says otherwise, and `review_mark` it `pushed-back`.
 
 **Chat route:** the same rule. After fixing, list what's ready and ask whether to commit and push; reply and resolve only after the push.
+
+**General points have no thread on GitHub**, so there is nothing to reply on or resolve. Answer them in the PR conversation instead: after the push, one `gh pr comment <pr> --body-file <file>` covering every general point in that push — each point quoted (`> …`), what changed and the short commit hash beneath it, the whole comment prefixed `🤖 resolved by Claude:` and linking the source comment. A push back on a general point is the same, prefixed `🤖 Claude:`. The quote and link are how the next round knows the point was answered. Then `review_mark` them as usual.
 
 If something fails, don't mark it — say what failed. A skipped thread stays unresolved on GitHub. Skips from the sidebar are recorded by the sidebar itself; skips in chat need nothing.
 

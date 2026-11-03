@@ -1,9 +1,10 @@
 import type { ElementTable } from 'claude-code'
 
-import type { DecisionOption, ReferenceExcerpt, ReviewSession, TriageBucket } from '../../types'
+import type { DecisionOption, ReferenceExcerpt, ReviewSession, ReviewThread, TriageBucket } from '../../types'
 import type { ThreadView } from './walk-order'
 import {
   doneOutcomeLabel,
+  generalSourceLabel,
   isAwaitingDecision,
   isSettled,
   locationOf,
@@ -199,7 +200,7 @@ function drawCompactThread(
   return (
     <Box key={`thread-${thread.id}`} flexDirection="column">
       <Button key={`row-${thread.id}`} plain onPress={() => actions.toggle(thread.id)}>
-        <Text dimColor>{mark} [{thread.number}] {fileNameAndLine(thread.path, thread.line)}</Text>
+        <Text dimColor>{mark} [{thread.number}] {rowLabel(thread)}</Text>
         <Text color={outcomeColor}> · {outcomeLabel}</Text>
       </Button>
       {isExpanded && drawDetail(ui, model, actions, view)}
@@ -217,7 +218,7 @@ function drawThread(ui: ElementTable, model: SidebarModel, actions: SidebarActio
     <Box key={`thread-${thread.id}`} flexDirection="column" marginBottom={isExpanded ? 0 : 1}>
       <Button key={`row-${thread.id}`} plain onPress={() => actions.toggle(thread.id)}>
         <Text bold={!isSettled(view)} dimColor={isSettled(view)}>
-          {statusMark(view, isExpanded)} [{thread.number}] {fileNameAndLine(thread.path, thread.line)}
+          {statusMark(view, isExpanded)} [{thread.number}] {rowLabel(thread)}
         </Text>
         <Text dimColor> · {details.filter(Boolean).join(' · ')}</Text>
       </Button>
@@ -378,9 +379,10 @@ function statusMark(view: ThreadView, isExpanded: boolean): string {
   return isExpanded ? '▾' : '▸'
 }
 
-function fileNameAndLine(path: string, line: number | null): string {
-  const fileName = path.split('/').pop() ?? path
-  return line === null ? fileName : `${fileName}:${line}`
+function rowLabel(thread: ReviewThread): string {
+  if (thread.generalSource !== undefined && thread.path === '') return generalSourceLabel(thread)
+  const fileName = thread.path.split('/').pop() ?? thread.path
+  return thread.line === null ? fileName : `${fileName}:${thread.line}`
 }
 
 function openingLineOf(body: string): string {

@@ -1,4 +1,12 @@
-import type { CodeExcerpt, PullRequestRef, ReviewComment, ReviewThread } from '../../types'
+import type {
+  CodeExcerpt,
+  GeneralFeedback,
+  GeneralFeedbackKind,
+  GeneralPointInput,
+  PullRequestRef,
+  ReviewComment,
+  ReviewThread,
+} from '../../types'
 
 const EXCERPT_CONTEXT_LINES = 4
 
@@ -12,9 +20,16 @@ query($owner:String!, $repo:String!, $pr:Int!) {
           comments(first:50) { nodes { author { login } body url diffHunk } }
         }
       }
+      reviews(first:50) { nodes { id author { login } body url } }
+      comments(first:100) { nodes { id author { login } body url } }
     }
   }
 }`
+
+/** Claude's own answers start with this mark, so they are never read back as feedback to act on. */
+const CLAUDE_REPLY_MARK = '🤖'
+
+type GraphQlGeneralComment = { id: string; author: { login: string } | null; body: string; url: string }
 
 export type GraphQlThread = {
   id: string
@@ -76,6 +91,43 @@ export function parsePullRequest(pullRequestJson: string): PullRequestRef {
 
 export function parseThreads(responseJson: string): GraphQlThread[] {
   return JSON.parse(responseJson).data.repository.pullRequest.reviewThreads.nodes
+}
+
+/** Review summaries, then conversation comments, keeping only those with words in them that Claude did not write. */
+export function parseGeneralFeedback(responseJson: string): GeneralFeedback[] {
+  const pullRequest = JSON.parse(responseJson).data.repository.pullRequest
+  const reviews: GraphQlGeneralComment[] = pullRequest.reviews?.nodes ?? []
+  const comments: GraphQlGeneralComment[] = pullRequest.comments?.nodes ?? []
+  return [
+    ...reviews.map(review => toGeneralFeedback(review, 'review-summary')),
+    ...comments.map(comment => toGeneralFeedback(comment, 'conversation')),
+  ].filter(feedback => feedback.body !== '' && !feedback.body.startsWith(CLAUDE_REPLY_MARK))
+}
+
+function toGeneralFeedback(raw: GraphQlGeneralComment, kind: GeneralFeedbackKind): GeneralFeedback {
+  return { id: raw.id, kind, author: raw.author?.login ?? 'ghost', body: raw.body.trim(), url: raw.url }
+}
+
+/** A point split out of general feedback, shaped as a thread so the sidebar walks it like one. */
+export function toGeneralPoint(
+  source: GeneralFeedback,
+  point: GeneralPointInput,
+  id: string,
+  fileText: string | null,
+): ReviewThread {
+  const line = point.line ?? null
+  return {
+    id,
+    number: 0,
+    path: point.path ?? '',
+    line,
+    isOutdated: false,
+    isResolved: false,
+    url: source.url,
+    comments: [{ author: source.author, body: point.quote, url: source.url }],
+    excerpt: fileText !== null && line !== null ? sourceExcerpt(fileText, line) : null,
+    generalSource: source.kind,
+  }
 }
 
 /** The line the thread anchors to now, or null when only the original diff can show it. */

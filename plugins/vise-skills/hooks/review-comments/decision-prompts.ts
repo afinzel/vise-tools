@@ -1,5 +1,5 @@
 import type { ThreadView } from './walk-order'
-import { locationOf } from './walk-order'
+import { isGeneralPoint, locationOf } from './walk-order'
 
 const HOLD_UNTIL_PUSHED = 'Then mark it fixed-locally: do not reply on or resolve the thread, and do not commit or push, until I ask for the push.'
 const HOLD_ALL_UNTIL_PUSHED = 'Then mark each fixed-locally: do not reply on or resolve the threads, and do not commit or push, until I ask for the push.'
@@ -21,7 +21,7 @@ export function decisionPrompt(view: ThreadView, decision: Decision, settledToo:
     case 'option':
       return joinSentences(`review-comments: for ${label}, go with ${optionLabel(view, decision.optionKey)}.`, notes, 'Make the change.', holdUntilPushed(threadCount))
     case 'push-back':
-      return joinSentences(`review-comments: push back on ${label}: reply on the thread with the reasoning and leave it unresolved.`, settlesTooNote(settledToo))
+      return joinSentences(`review-comments: push back on ${label}: ${pushBackReply(view)}`, settlesTooNote(settledToo))
   }
 }
 
@@ -33,11 +33,25 @@ export function quickFixPrompt(quickFixes: readonly ThreadView[]): string {
 /** Pressing the push button is the person asking for the commit and push the fixes were held for. */
 export function pushPrompt(readyToPush: readonly ThreadView[]): string {
   const threads = readyToPush.map(view => `[${view.thread.number}] (${locationOf(view.thread)})`).join(', ')
-  return `review-comments: commit and push the fixes for ${threads}. Once the push succeeds, reply on each of those threads with what changed and the commit it is in, resolve them, and mark them fixed.`
+  const pushed = `review-comments: commit and push the fixes for ${threads}. Once the push succeeds, reply on each of those threads with what changed and the commit it is in, resolve them, and mark them fixed.`
+  return joinSentences(pushed, generalPointsNote(readyToPush.filter(isGeneralPoint)))
 }
 
 export function discussionPrompt(view: ThreadView): string {
   return `review-comments: about [${view.thread.number}] (${locationOf(view.thread)}): `
+}
+
+function pushBackReply(view: ThreadView): string {
+  return isGeneralPoint(view)
+    ? 'it came from general feedback, so reply in the PR conversation, quoting the point, with the reasoning.'
+    : 'reply on the thread with the reasoning and leave it unresolved.'
+}
+
+/** General points have no thread on GitHub, so their answer goes in the PR conversation and nothing is resolved. */
+function generalPointsNote(generalPoints: readonly ThreadView[]): string {
+  if (generalPoints.length === 0) return ''
+  const numbers = generalPoints.map(view => `[${view.thread.number}]`).join(', ')
+  return `${numbers} came from general feedback: answer them in one PR conversation comment, quoting each point, with nothing to resolve.`
 }
 
 function optionLabel(view: ThreadView, optionKey: string): string {

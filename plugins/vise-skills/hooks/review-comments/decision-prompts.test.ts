@@ -44,3 +44,23 @@ test('the push button asks for the commit and push, then the replies and resolve
     + 'Once the push succeeds, reply on each of those threads with what changed and the commit it is in, resolve them, and mark them fixed.',
   )
 })
+
+function generalPoint(number: number, path = ''): ThreadView {
+  const inline = view(number)
+  return { ...inline, thread: { ...inline.thread, path, line: null, generalSource: 'review-summary' } }
+}
+
+test('pushing back on a general point replies in the PR conversation', async () => {
+  expect(decisionPrompt(generalPoint(5), { kind: 'push-back' }, [])).toBe(
+    'review-comments: push back on [5] (review summary): it came from general feedback, '
+    + 'so reply in the PR conversation, quoting the point, with the reasoning.',
+  )
+})
+
+test('the push button answers general points in the PR conversation', async () => {
+  expect(pushPrompt([view(1), generalPoint(5, 'src/Rules.cs')])).toBe(
+    'review-comments: commit and push the fixes for [1] (src/Rules.cs:190), [5] (review summary, src/Rules.cs). '
+    + 'Once the push succeeds, reply on each of those threads with what changed and the commit it is in, resolve them, and mark them fixed. '
+    + '[5] came from general feedback: answer them in one PR conversation comment, quoting each point, with nothing to resolve.',
+  )
+})
