@@ -100,6 +100,28 @@ Then stop.
 
 When a Fix prompt arrives from the pane, follow it as written. It ends with `findings_mark` (and, for Fix + comment, `findings_post` with a `note` per finding).
 
+## 4. Ready for review
+
+PRs open as drafts, and leaving draft is the signal that the PR is handed over: the Jira ticket's
+Ready for PR status follows it. Self-review usually takes several rounds, so this comes at the end of
+the loop, never in the middle of it.
+
+**When:** the PR is still a draft, and either a round ends with no open findings (every one fixed,
+dismissed or withdrawn, or the round found nothing), or the user says they are done reviewing. Fixes
+are pushed. Skip it when there is no PR, or the PR is already out of draft.
+
+**Ask, never assume:** with `AskUserQuestion` (header "Ready?"): *"Self-review is clean. Mark PR #N
+ready for review?"* Options: **Ready** (recommended), and **Another round**, which starts a new round
+from step 1.
+
+**On Ready:**
+- Run `gh pr ready <N>`.
+- Find the ticket key in the PR title or branch (e.g. `DTP3-252`). If there is one, offer to move it
+  to the project's Ready for PR status, through the Atlassian connector when it reaches that Jira site.
+  When it cannot, give the user the key and the target status to move by hand.
+- The transition may require a worklog (a Log Work screen). Ask the user for the time spent; never
+  send `0m` just to get past it.
+
 ## No pane
 
 The VS Code panel draws no panes. Here, list the findings in chat, grouped by reviewer, each with its severity icon (🔥 high, ⚠️ medium, 🧹 low), id, location and summary. Then ask with `AskUserQuestion` (`multiSelect: true`) which to fix and which to post. Act on the answer:
