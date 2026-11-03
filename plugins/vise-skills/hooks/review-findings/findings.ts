@@ -99,8 +99,10 @@ export function commentableLines(diff: string): Record<string, number[]> {
 }
 
 /**
- * One review of inline comments. A finding whose line the diff does not show cannot be an inline
- * comment, so it goes in the review's body instead, with its file and line.
+ * One review of inline comments. GitHub anchors a comment only to a line the diff shows, so a
+ * finding on another line of a changed file is anchored to the nearest line the diff does show,
+ * and says which line it means. Only a finding in a file the diff does not touch, or with no line,
+ * goes in the review's body.
  */
 export function reviewPayload(
   pullRequest: PullRequestRef,
@@ -108,14 +110,43 @@ export function reviewPayload(
   commentable: Record<string, number[]>,
   notes: Record<string, string> = {},
 ): ReviewPayload {
-  const isInline = (finding: ReviewFinding) => finding.line !== null && (commentable[finding.file] ?? []).includes(finding.line)
-  const outsideDiff = findings.filter(finding => !isInline(finding))
+  const anchored = findings.map(finding => ({ finding, anchor: anchorLine(finding, commentable[finding.file] ?? []) }))
   return {
     commit_id: pullRequest.headCommit,
     event: 'COMMENT',
-    body: outsideDiff.map(finding => `**${locationOf(finding)}**: ${commentBody(finding, notes[finding.id])}`).join('\n\n'),
-    comments: findings.filter(isInline).map(finding => ({ path: finding.file, line: finding.line!, side: 'RIGHT', body: commentBody(finding, notes[finding.id]) })),
+    body: anchored
+      .filter(({ anchor }) => anchor === null)
+      .map(({ finding }) => `**${locationOf(finding)}**: ${commentBody(finding, notes[finding.id])}`)
+      .join('\n\n'),
+    comments: anchored
+      .filter(({ anchor }) => anchor !== null)
+      .map(({ finding, anchor }) => ({ path: finding.file, line: anchor!, side: 'RIGHT', body: `${outsideDiffLead(finding, anchor!)}${commentBody(finding, notes[finding.id])}` })),
   }
+}
+
+/** The PR's existing review comments, one JSON object per line, to check what is already there before posting. */
+export function postedCommentsArgv(pullRequest: PullRequestRef): string[] {
+  return ['gh', 'api', '--paginate', `repos/${pullRequest.owner}/${pullRequest.repo}/pulls/${pullRequest.number}/comments`, '--jq', '.[] | {path, body}']
+}
+
+export type PostedComment = { path: string; body: string }
+
+export function parsePostedComments(jsonLines: string): PostedComment[] {
+  return jsonLines.split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as PostedComment)
+}
+
+/** Already on the PR: a comment on the same file that carries the finding's own words, from this round or an earlier one. */
+export function isAlreadyPosted(finding: ReviewFinding, posted: readonly PostedComment[]): boolean {
+  return posted.some(comment => comment.path === finding.file && comment.body.includes(finding.summary))
+}
+
+function anchorLine(finding: ReviewFinding, lines: readonly number[]): number | null {
+  if (finding.line === null || lines.length === 0) return null
+  return lines.reduce((nearest, line) => (Math.abs(line - finding.line!) < Math.abs(nearest - finding.line!) ? line : nearest))
+}
+
+function outsideDiffLead(finding: ReviewFinding, anchor: number): string {
+  return finding.line === anchor ? '' : `**Line ${finding.line}** (outside the diff): `
 }
 
 export function reviewPostArgv(pullRequest: PullRequestRef): string[] {

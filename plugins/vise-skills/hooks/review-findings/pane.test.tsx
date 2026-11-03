@@ -48,21 +48,25 @@ const PANE_PROPS = {
   view: {},
 }
 
-function processResult(stdout: string, exitCode = 0) {
-  return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+function processResult(stdout: string, exitCode = 0, stderr = '') {
+  return { value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } }
 }
 
 type Posted = { argv: readonly string[]; payload: { comments: { path: string; line: number; body: string }[]; body: string } }
 
-function github(on: On) {
+type GitHubSetup = { existingComments?: { path: string; body: string }[]; isPostRefused?: boolean }
+
+function github(on: On, { existingComments = [], isPostRefused = false }: GitHubSetup = {}) {
   const posted: Posted[] = []
   const store = new Map<string, unknown>()
   on('process.run', async ($, e) => {
     if (e.argv[1] === 'pr' && e.argv[2] === 'view') return processResult(PULL_REQUEST_VIEW)
     if (e.argv[1] === 'pr' && e.argv[2] === 'diff') return processResult(DIFF)
     if (e.argv[1] === 'api' && e.argv[2] === 'graphql') return processResult(THREADS)
+    if (e.argv[1] === 'api' && e.argv[2] === '--paginate') return processResult(existingComments.map(comment => JSON.stringify(comment)).join('\n'))
     if (e.argv[0] === 'git' && e.argv[1] === 'rev-parse') return processResult('/repo\n')
     if (e.argv[1] === 'api' && e.argv[2] === '-H') return processResult(ORDERS_SOURCE)
+    if (isPostRefused) return processResult('', 1, 'Validation Failed')
     posted.push({ argv: e.argv, payload: JSON.parse(String(e.init?.stdin)) })
     return processResult(JSON.stringify({ html_url: 'https://github.com/afinzel/vise-tools/pull/12#pullrequestreview-1' }))
   })
@@ -146,6 +150,52 @@ test('ext-review: Step through opens one finding at a time with its code and a s
 
   await ui.press({ key: 'dismiss-claude-2' })
   expect(await ui.find({ key: 'step-through' })).toBeUndefined()
+})
+
+test('Submit pressed twice posts the review once', async ($, on) => {
+  const { posted } = github(on)
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'ext', pr: '12' } as never)
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_record', kind: 'ext', source: 'claude', findings: [{ file: 'src/orders.ts', line: 11, summary: 'Unpaid orders are silently dropped.', short_summary: 'Dropped orders' }] } as never)
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'ext-review', props: PANE_PROPS })
+
+  await ui.press({ key: 'toggle-claude-1' })
+  await ui.press({ key: 'queue' })
+  await Promise.all([ui.press({ key: 'submit-review' }), ui.press({ key: 'submit-review' })])
+
+  expect(posted).toHaveLength(1)
+  expect(await ui.find({ text: /Dropped orders · posted/ })).toBeDefined()
+})
+
+test('a finding already on the PR is not sent again, and the rest still post', async ($, on) => {
+  const { posted } = github(on, { existingComments: [{ path: 'src/orders.ts', body: '⚠️ **Medium:** Unpaid orders are silently dropped.' }] })
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'ext', pr: '12' } as never)
+  await $.tool.call({
+    tool: 'mcp__vise-skills__findings_record',
+    kind: 'ext',
+    source: 'claude',
+    findings: [
+      { file: 'src/orders.ts', line: 11, summary: 'Unpaid orders are silently dropped.' },
+      { file: 'src/orders.ts', line: 12, summary: 'Retry never backs off.' },
+    ],
+  } as never)
+
+  const answer = await $.tool.call({ tool: 'mcp__vise-skills__findings_post', kind: 'ext', items: [{ id: 'claude-1' }, { id: 'claude-2' }] } as never)
+
+  expect(posted).toHaveLength(1)
+  expect(posted[0]!.payload.comments.map(comment => comment.line)).toEqual([12])
+  expect(String((answer as { result: unknown }).result)).toMatch(/Posted 1 findings as a review \(1 already on the PR, not sent again\)/)
+})
+
+test('a posting the PR refuses is released, so it can be tried again', async ($, on) => {
+  github(on, { isPostRefused: true })
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'ext', pr: '12' } as never)
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_record', kind: 'ext', source: 'claude', findings: [{ file: 'src/orders.ts', line: 11, summary: 'x', short_summary: 'Dropped orders' }] } as never)
+
+  const answer = await $.tool.call({ tool: 'mcp__vise-skills__findings_post', kind: 'ext', items: [{ id: 'claude-1' }] } as never)
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'ext-review', props: PANE_PROPS })
+
+  expect(String((answer as { result: unknown }).result)).toMatch(/GitHub refused the review: Validation Failed/)
+  expect(await ui.find({ key: 'toggle-claude-1' })).toBeDefined()
 })
 
 test('a finding taken back out of the review is open again, and nothing posts', async ($, on) => {

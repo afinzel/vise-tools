@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { commentableLines, commentBody, findingsFrom, fixPrompt, isInfo, isTrivialFix, listLine, nextOpenAfter, withCurrentFields, oftenDismissedRules, reviewPayload, tallyDismissed, tallyRaised } from './findings'
+import { commentableLines, commentBody, findingsFrom, fixPrompt, isAlreadyPosted, isInfo, isTrivialFix, listLine, nextOpenAfter, withCurrentFields, oftenDismissedRules, parsePostedComments, reviewPayload, tallyDismissed, tallyRaised } from './findings'
 
 const PULL_REQUEST = { owner: 'afinzel', repo: 'vise-tools', number: 12, title: 'Orders', url: 'https://github.com/afinzel/vise-tools/pull/12', headBranch: 'feat/orders', headCommit: 'abc123' }
 
@@ -34,18 +34,34 @@ test('findings get per-reviewer ids that carry on from the last batch, and rule 
   expect(second[0]).toMatchObject({ id: 'clean-code-2', line: null, rule: null })
 })
 
-test('a finding on a line the diff shows is inline; any other goes in the review body', async () => {
+test('a finding in a changed file is inline, on its own line or the nearest the diff shows; any other goes in the review body', async () => {
   const findings = findingsFrom('claude', [
     { file: 'src/orders.ts', line: 11, summary: 'Unpaid orders are silently dropped.', failure_scenario: 'An unpaid order returns as if shipped.' },
     { file: 'src/orders.ts', line: 40, summary: 'Retry loop never backs off.' },
+    { file: 'src/untouched.ts', line: 5, summary: 'Old helper leaks.' },
+    { file: 'src/orders.ts', summary: 'No tests for the file.' },
   ], [])
 
   const payload = reviewPayload(PULL_REQUEST, findings, commentableLines(DIFF))
 
   expect(payload.commit_id).toBe('abc123')
   expect(payload.event).toBe('COMMENT')
-  expect(payload.comments).toEqual([{ path: 'src/orders.ts', line: 11, side: 'RIGHT', body: '⚠️ **Medium:** Unpaid orders are silently dropped.\n\nAn unpaid order returns as if shipped.' }])
-  expect(payload.body).toBe('**src/orders.ts:40**: ⚠️ **Medium:** Retry loop never backs off.')
+  expect(payload.comments).toEqual([
+    { path: 'src/orders.ts', line: 11, side: 'RIGHT', body: '⚠️ **Medium:** Unpaid orders are silently dropped.\n\nAn unpaid order returns as if shipped.' },
+    { path: 'src/orders.ts', line: 13, side: 'RIGHT', body: '**Line 40** (outside the diff): ⚠️ **Medium:** Retry loop never backs off.' },
+  ])
+  expect(payload.body).toBe('**src/untouched.ts:5**: ⚠️ **Medium:** Old helper leaks.\n\n**src/orders.ts**: ⚠️ **Medium:** No tests for the file.')
+})
+
+test('a finding counts as posted when a comment on its file already carries its words', async () => {
+  const [finding] = findingsFrom('claude', [{ file: 'src/orders.ts', line: 11, summary: 'Unpaid orders are silently dropped.' }], [])
+  const posted = parsePostedComments([
+    JSON.stringify({ path: 'src/orders.ts', body: 'Fixed.\n\n> ⚠️ **Medium:** Unpaid orders are silently dropped.' }),
+    '',
+  ].join('\n'))
+
+  expect(isAlreadyPosted(finding!, posted)).toBe(true)
+  expect(isAlreadyPosted(finding!, [{ path: 'src/other.ts', body: 'Unpaid orders are silently dropped.' }])).toBe(false)
 })
 
 test('a note leads the comment and quotes the finding it answers', async () => {
