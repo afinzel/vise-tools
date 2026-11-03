@@ -19,7 +19,18 @@ Call `mcp__vise-skills__findings_start` with `kind: "self"`, and `pr` when the u
 
 **The fixed point:** use the PR's base branch, or the repository's default branch when there is no PR. Compare with `git diff <base>...HEAD` (three dots, against the merge-base).
 
-**The card.** Find the ticket key in the PR title or branch (e.g. `DTP3-252`) and read the ticket's acceptance criteria, through the Atlassian connector when it reaches that Jira site. These criteria, not the PR description, decide what is `off-card`. With no ticket, or none you can read, use the PR's title as the purpose and say so in one line: then nothing is judged `off-card`.
+**The card.** Find the ticket key in the PR title or branch (e.g. `DTP3-252`) and read the ticket's acceptance criteria. These criteria, not the PR description, decide what is `off-card`. Try in this order, and stop at the first that works:
+1. The Atlassian connector, when it reaches that Jira site.
+2. The browser (Claude in Chrome), on the ticket's Jira page.
+3. Ask the user to paste the acceptance criteria, with `AskUserQuestion` offering "Paste them" and "Skip: no off-card this round".
+
+With no ticket key, or when the user skips, use the PR's title as the purpose and say in one line that nothing is judged `off-card` this round.
+
+**What was declined before.** `findings_start` answers with two lists. Build one declined list from them, and give it to every reviewer and voter:
+- `declinedBefore`: findings the user dismissed in earlier rounds on this PR. All of them count.
+- `discussedThreads`: the PR's review threads that have a reply. Read each `lastReply`. Count the thread only when the reply declines the change (a push-back, "won't fix", "by design", "out of scope"), not when it says the change was made.
+
+Add this to each brief: *"These were raised before and declined. Do not report one again unless the code it points at has changed since, in a way that undoes the reason it was declined."* Before recording, compare every finding with the list, using the same test as a merge: same cause, same fix. A match whose code has not changed is recorded with `declined_before`: one line on where and why, with the thread link when there is one. It lands settled, not open. A match whose code has changed is recorded as normal, and its `failure_scenario` says it was declined before and why it is back.
 
 **Ask which mode.** Before starting the reviewers, ask with `AskUserQuestion` (header "Mode"):
 - **Standard:** Claude's /code-review runs once, as below.
@@ -95,7 +106,7 @@ Brief, with the scope definition and the card: *"Read the diff and as much surro
 
 ## 3. Hand over
 
-**Pane shown:** in one or two lines, say how many findings each reviewer raised (in voting mode, also how many most voters judged real, and how many of those only one run raised), how many are information (`pre-existing` or `off-card`), and how many open fixes change behaviour. Then say that the user ticks findings in the pane and chooses:
+**Pane shown:** in one or two lines, say how many findings each reviewer raised (in voting mode, also how many most voters judged real, and how many of those only one run raised), how many were declined before, how many are information (`pre-existing` or `off-card`), and how many open fixes change behaviour. Then say that the user ticks findings in the pane and chooses:
 - **Fix N trivial (no behaviour change):** sends every open finding the PR owns and whose fix leaves behaviour alone, in one batch.
 - **Fix:** sends them to you to fix.
 - **Fix + comment:** fix, commit, push, then post a comment per fix saying what changed.

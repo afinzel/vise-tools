@@ -35,6 +35,7 @@ const STATUS_LABELS: Record<FindingStatus, string> = {
   posted: 'posted',
   dismissed: 'dismissed',
   withdrawn: 'withdrawn by Claude',
+  'declined-before': 'declined before',
 }
 
 export function drawPane(ui: ElementTable, kind: FindingsReviewKind, round: FindingsRound, oftenDismissed: readonly OftenDismissedRule[], actions: PaneActions) {
@@ -180,7 +181,8 @@ function drawSettled(ui: ElementTable, finding: ReviewFinding) {
   const { Text } = ui
   return (
     <Text key={`settled-${finding.id}`} dimColor>
-      {finding.status === 'dismissed' || finding.status === 'withdrawn' ? '–' : '✓'} {finding.shortSummary} · {STATUS_LABELS[finding.status]}
+      {finding.status === 'dismissed' || finding.status === 'withdrawn' || finding.status === 'declined-before' ? '–' : '✓'} {finding.shortSummary} · {STATUS_LABELS[finding.status]}
+      {finding.declinedBefore === null ? '' : `: ${finding.declinedBefore}`}
       {finding.commentUrl === null ? '' : ` ${finding.commentUrl}`}
     </Text>
   )

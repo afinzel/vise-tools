@@ -133,7 +133,13 @@ export type FindingSeverity = 'high' | 'medium' | 'low'
  * `dismissed` is the user rejecting a finding, and counts against its rule; `withdrawn` is Claude
  * finding it does not hold up, and does not.
  */
-export type FindingStatus = 'open' | 'queued' | 'fixing' | 'fixed' | 'posted' | 'dismissed' | 'withdrawn'
+export type FindingStatus = 'open' | 'queued' | 'fixing' | 'fixed' | 'posted' | 'dismissed' | 'withdrawn' | 'declined-before'
+
+/** A finding the user dismissed in an earlier round on the same PR, kept so a later round does not raise it again. */
+export type DeclinedFinding = { file: string; line: number | null; summary: string; rule: string | null; declinedOn: string }
+
+/** A PR review thread someone replied to: where a finding may have been declined in words rather than dismissed. */
+export type DiscussedThread = { path: string; line: number | null; isResolved: boolean; url: string; raised: string; lastReply: string }
 
 /**
  * Whose problem a finding is. `introduced` and `worsened` belong to the PR; `pre-existing` (on the
@@ -157,6 +163,8 @@ export type ReviewFinding = {
   isBehaviourChange: boolean | null
   /** Whether the PR owns it; null when its reviewer did not judge it, and then it counts as the PR's. */
   scope: FindingScope | null
+  /** Where and why it was declined before, when it was; such a finding starts settled, not open. */
+  declinedBefore: string | null
   category: string | null
   /** The Clean Code rule it breaks, e.g. `G30`; tallied when dismissed, to show which rules keep missing. */
   rule: string | null
@@ -174,6 +182,8 @@ export type FindingsRound = {
   findings: ReviewFinding[]
   /** Reviewers still running; the pane says it is waiting on them. */
   sourcesPending: FindingSource[]
+  /** The PR's review threads that have a reply, read when the round starts. */
+  discussedThreads: DiscussedThread[]
   expandedId: string | null
   isPaneShown: boolean
   error: string | null

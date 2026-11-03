@@ -1,13 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { FindingSource, FindingStatus, FindingsReviewKind, FindingsRound, PullRequestRef, ReviewFinding, RuleTally } from '../types'
+import type { DeclinedFinding, FindingSource, FindingStatus, FindingsReviewKind, FindingsRound, PullRequestRef, ReviewFinding, RuleTally } from '../types'
 import { BEHAVIOUR_CHANGE_DEFINITION } from './behaviour-change'
 import { FINDING_SCOPE_DEFINITION } from './finding-scope'
-import { REPOSITORY_ROOT_ARGV, fileAtHeadArgv, parsePullRequest, parsePullRequestTarget, pullRequestViewArgv } from './review-comments/github-threads'
+import { REPOSITORY_ROOT_ARGV, fileAtHeadArgv, parsePullRequest, parsePullRequestTarget, parseThreads, pullRequestViewArgv, threadsQueryArgv } from './review-comments/github-threads'
 import {
   bySeverity,
   commentableLines,
+  declinedFrom,
+  discussedThreads,
   explainPrompt,
   listLine,
   findingExcerpt,
@@ -18,6 +20,7 @@ import {
   nextOpenAfter,
   oftenDismissedRules,
   pullRequestDiffArgv,
+  pullRequestKey,
   suggestionPrompt,
   reviewPayload,
   reviewPostArgv,
@@ -44,8 +47,9 @@ const TOOL_RECORD = 'mcp__vise-skills__findings_record'
 const TOOL_POST = 'mcp__vise-skills__findings_post'
 const TOOL_MARK = 'mcp__vise-skills__findings_mark'
 const STORE_RULE_TALLIES = 'cleanCodeRuleTallies'
+const STORE_DECLINED = 'declinedFindings'
 
-const EMPTY_ROUND: FindingsRound = { pullRequest: null, commentableLines: {}, findings: [], sourcesPending: [], expandedId: null, isPaneShown: false, error: null }
+const EMPTY_ROUND: FindingsRound = { pullRequest: null, commentableLines: {}, findings: [], sourcesPending: [], discussedThreads: [], expandedId: null, isPaneShown: false, error: null }
 
 const extRound = atom({ plugin: 'vise-skills', key: 'extReview' } as const, EMPTY_ROUND)
 const selfRound = atom({ plugin: 'vise-skills', key: 'selfReview' } as const, EMPTY_ROUND)
@@ -129,6 +133,7 @@ export async function registerFindingsTools($: EngineInterface) {
               severity: { enum: ['high', 'medium', 'low'], description: 'high: wrong behaviour, data loss or a security hole; medium: a real cost a reviewer would ask to fix; low: style and readability.' },
               is_behaviour_change: { type: 'boolean', description: `${BEHAVIOUR_CHANGE_DEFINITION} Leave out when the reviewer did not judge it.` },
               scope: { enum: ['introduced', 'worsened', 'pre-existing', 'off-card'], description: `Whether the PR owns it. ${FINDING_SCOPE_DEFINITION} pre-existing and off-card show apart, as information. Leave out when nobody judged it.` },
+              declined_before: { type: 'string', description: 'Set only when this is a finding the user already declined, in an earlier round (findings_start\'s declinedBefore) or in a PR thread (its discussedThreads), and the code it points at has not changed since: one line on where and why, with the thread link when there is one. The finding then starts settled, not open.' },
             },
           },
         },
@@ -179,6 +184,19 @@ async function startReview($: EngineInterface, kind: FindingsReviewKind, pr: str
   const pullRequest = parsePullRequest(view.stdout)
   await updateRound($, kind, current => ({ ...current, pullRequest }))
   await loadCommentableLines($, kind, pullRequest)
+  await loadDiscussedThreads($, kind, pullRequest)
+}
+
+/** Best effort: without the threads, Claude still has the dismissals the store remembers. */
+async function loadDiscussedThreads($: EngineInterface, kind: FindingsReviewKind, pullRequest: PullRequestRef) {
+  const threads = await $.process.run(threadsQueryArgv(pullRequest), { timeoutMs: 60_000 })
+  if (threads.exitCode !== 0) return
+  try {
+    const discussed = discussedThreads(parseThreads(threads.stdout))
+    await updateRound($, kind, current => ({ ...current, discussedThreads: discussed }))
+  } catch {
+    // An answer we cannot read leaves the round without threads, as a failed call does.
+  }
 }
 
 async function loadCommentableLines($: EngineInterface, kind: FindingsReviewKind, pullRequest: PullRequestRef) {
@@ -320,9 +338,22 @@ async function submitFix($: EngineInterface, kind: FindingsReviewKind, ids: read
 }
 
 async function markFindings($: EngineInterface, kind: FindingsReviewKind, ids: readonly string[], status: FindingStatus) {
-  const marked = (await readRound($, kind)).findings.filter(finding => ids.includes(finding.id) && finding.status !== status)
+  const round = await readRound($, kind)
+  const marked = round.findings.filter(finding => ids.includes(finding.id) && finding.status !== status)
   await updateFindings($, kind, findings => withStatus(findings, ids, status))
-  if (status === 'dismissed') await $.store.set(STORE_RULE_TALLIES, tallyDismissed(await ruleTallies($), marked))
+  if (status !== 'dismissed') return
+  await $.store.set(STORE_RULE_TALLIES, tallyDismissed(await ruleTallies($), marked))
+  if (round.pullRequest !== null) await rememberDeclined($, pullRequestKey(round.pullRequest), marked)
+}
+
+async function rememberDeclined($: EngineInterface, key: string, findings: readonly ReviewFinding[]) {
+  const declined = await declinedFindings($)
+  const today = new Date().toISOString().slice(0, 10)
+  await $.store.set(STORE_DECLINED, { ...declined, [key]: [...(declined[key] ?? []), ...declinedFrom(findings, today)] })
+}
+
+async function declinedFindings($: EngineInterface): Promise<Record<string, DeclinedFinding[]>> {
+  return ((await $.store.get(STORE_DECLINED)) as Record<string, DeclinedFinding[]> | undefined) ?? {}
 }
 
 async function explain($: EngineInterface, kind: FindingsReviewKind, id: string) {
@@ -366,5 +397,7 @@ async function roundForClaude($: EngineInterface, kind: FindingsReviewKind): Pro
     pullRequest: round.pullRequest,
     waitingOn: round.sourcesPending,
     oftenDismissedRules: kind === 'self' ? oftenDismissedRules(await ruleTallies($)) : [],
+    declinedBefore: round.pullRequest === null ? [] : ((await declinedFindings($))[pullRequestKey(round.pullRequest)] ?? []),
+    discussedThreads: round.discussedThreads,
   })
 }

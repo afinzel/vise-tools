@@ -105,6 +105,15 @@ ticket's acceptance criteria). The last two sit below the rest under **info: not
 Tick all, Step through and the trivial batch pass them by, so a real but old bug doesn't grow the
 PR unless you pick it yourself.
 
+The ticket's acceptance criteria come from the Atlassian connector, then the browser, then you.
+Without them nothing is judged off-card that round.
+
+**Declined before.** Dismissing a finding remembers it for that PR, in the plugin's store. The
+next round on the PR gets those back, along with the PR's review threads that have a reply, and
+Claude marks a finding you already declined, in either place, as **declined before** with where
+and why. It goes straight to the done list. It comes back as open only when the code it points
+at has changed since.
+
 **Behaviour change.** A finding whose fix changes behaviour reads `⚡ behaviour change` in yellow
 on its row, and the header counts them. **Fix N trivial (no behaviour change)** sends every open
 finding the PR owns whose fix leaves behaviour alone, in one batch.

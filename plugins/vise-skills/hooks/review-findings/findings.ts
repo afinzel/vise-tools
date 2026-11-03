@@ -1,5 +1,6 @@
-import type { CodeExcerpt, FindingScope, FindingSeverity, FindingSource, FindingStatus, FindingsReviewKind, PullRequestRef, ReviewFinding, RuleTally } from '../../types'
+import type { CodeExcerpt, DeclinedFinding, DiscussedThread, FindingScope, FindingSeverity, FindingSource, FindingStatus, FindingsReviewKind, PullRequestRef, ReviewFinding, RuleTally } from '../../types'
 import { referenceExcerpt } from '../review-comments/github-threads'
+import type { GraphQlThread } from '../review-comments/github-threads'
 
 /** A finding as a reviewer reports it: ReportFindings' shape, plus the Clean Code rule when there is one. */
 export type ReportedFinding = {
@@ -14,6 +15,7 @@ export type ReportedFinding = {
   suggested_fix?: string
   is_behaviour_change?: boolean
   scope?: string
+  declined_before?: string
 }
 
 export type ReviewComment = { path: string; line: number; side: 'RIGHT'; body: string }
@@ -26,6 +28,8 @@ const SOURCE_LABELS: Record<FindingSource, string> = {
 }
 
 const SHORT_SUMMARY_LENGTH = 60
+/** Enough of a thread for Claude to tell whether it declined something, without the whole conversation. */
+const THREAD_TEXT_LENGTH = 300
 const SEVERITIES: readonly FindingSeverity[] = ['high', 'medium', 'low']
 const SCOPES: readonly FindingScope[] = ['introduced', 'worsened', 'pre-existing', 'off-card']
 /** Scopes the PR does not own: shown apart as information, and left out of Tick all, Step through and the trivial batch. */
@@ -66,9 +70,10 @@ export function findingsFrom(source: FindingSource, reported: readonly ReportedF
     failureScenario: finding.failure_scenario?.trim() || null,
     isBehaviourChange: finding.is_behaviour_change ?? null,
     scope: scopeOf(finding.scope),
+    declinedBefore: finding.declined_before?.trim() || null,
     category: finding.category ?? null,
     rule: finding.rule?.trim().toUpperCase() || null,
-    status: 'open',
+    status: finding.declined_before?.trim() ? 'declined-before' : 'open',
     isSelected: false,
     commentUrl: null,
     excerpt: null,
@@ -136,6 +141,34 @@ export function listLine(finding: ReviewFinding): string {
   const behaviour = finding.isBehaviourChange === true ? ' ⚡ behaviour change' : ''
   const scope = isInfo(finding) ? ` · info: ${SCOPE_LABELS[finding.scope!]}` : ''
   return `${SEVERITY_ICONS[finding.severity]} **${finding.id}** ${locationOf(finding)}: ${finding.summary}${behaviour}${scope}`
+}
+
+/** One store key per PR, so dismissals on one PR never hide findings on another. */
+export function pullRequestKey(pullRequest: PullRequestRef): string {
+  return `${pullRequest.owner}/${pullRequest.repo}#${pullRequest.number}`
+}
+
+/** What a later round needs to recognise a dismissed finding: where it was, what it said, and when. */
+export function declinedFrom(findings: readonly ReviewFinding[], declinedOn: string): DeclinedFinding[] {
+  return findings.map(finding => ({ file: finding.file, line: finding.line, summary: finding.summary, rule: finding.rule, declinedOn }))
+}
+
+/** Threads with a reply, cut short: a reply is where a finding gets declined in words. */
+export function discussedThreads(threads: readonly GraphQlThread[]): DiscussedThread[] {
+  return threads
+    .filter(thread => thread.comments.nodes.length > 1)
+    .map(thread => {
+      const comments = thread.comments.nodes
+      const last = comments[comments.length - 1]!
+      return {
+        path: thread.path,
+        line: thread.line ?? thread.originalLine,
+        isResolved: thread.isResolved,
+        url: comments[0]!.url,
+        raised: clipped(comments[0]!.body),
+        lastReply: `${last.author?.login ?? 'unknown'}: ${clipped(last.body)}`,
+      }
+    })
 }
 
 /** Pre-existing or off-card: real, maybe, but not this PR's to fix. */
@@ -218,6 +251,7 @@ export function withCurrentFields(finding: ReviewFinding): ReviewFinding {
     excerpt: recorded.excerpt ?? null,
     isBehaviourChange: recorded.isBehaviourChange ?? null,
     scope: recorded.scope ?? null,
+    declinedBefore: recorded.declinedBefore ?? null,
   }
 }
 
@@ -241,8 +275,9 @@ export function withStatus(findings: readonly ReviewFinding[], ids: readonly str
   return findings.map(finding => (ids.includes(finding.id) ? { ...finding, status, isSelected: false } : finding))
 }
 
+/** A finding declined before was counted when it was first raised; counting it again would skew its rule. */
 export function tallyRaised(tallies: Record<string, RuleTally>, findings: readonly ReviewFinding[]): Record<string, RuleTally> {
-  return tallyEach(tallies, findings, tally => ({ ...tally, raised: tally.raised + 1 }))
+  return tallyEach(tallies, findings.filter(finding => finding.status !== 'declined-before'), tally => ({ ...tally, raised: tally.raised + 1 }))
 }
 
 export function tallyDismissed(tallies: Record<string, RuleTally>, findings: readonly ReviewFinding[]): Record<string, RuleTally> {
@@ -281,6 +316,11 @@ function severityOf(source: FindingSource, finding: ReportedFinding): FindingSev
 function scopeOf(stated: string | undefined): FindingScope | null {
   const scope = stated?.trim().toLowerCase()
   return SCOPES.includes(scope as FindingScope) ? (scope as FindingScope) : null
+}
+
+function clipped(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length <= THREAD_TEXT_LENGTH ? flat : `${flat.slice(0, THREAD_TEXT_LENGTH - 1)}…`
 }
 
 function shortened(summary: string): string {

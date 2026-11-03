@@ -13,7 +13,31 @@ const DIFF = [
   '   return order',
 ].join('\n')
 
-const ORDERS_SOURCE = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n')
+const THREADS = JSON.stringify({
+  data: {
+    repository: {
+      pullRequest: {
+        reviewThreads: {
+          nodes: [
+            {
+              id: 't1', isResolved: false, isOutdated: false, path: 'src/orders.ts', line: 11, originalLine: 11,
+              comments: { nodes: [
+                { author: { login: 'dan' }, body: 'Use the block time here.', url: 'https://github.com/afinzel/vise-tools/pull/12#discussion_r1', diffHunk: '' },
+                { author: { login: 'afinzel' }, body: 'No: the send time is right for ordering.', url: 'https://github.com/afinzel/vise-tools/pull/12#discussion_r2', diffHunk: '' },
+              ] },
+            },
+            {
+              id: 't2', isResolved: false, isOutdated: false, path: 'src/orders.ts', line: 12, originalLine: 12,
+              comments: { nodes: [{ author: { login: 'dan' }, body: 'Nobody answered this.', url: 'https://github.com/afinzel/vise-tools/pull/12#discussion_r3', diffHunk: '' }] },
+            },
+          ],
+        },
+      },
+    },
+  },
+})
+
+const ORDERS_SOURCE =Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n')
 
 const PANE_PROPS = {
   title: 'Review',
@@ -36,6 +60,7 @@ function github(on: On) {
   on('process.run', async ($, e) => {
     if (e.argv[1] === 'pr' && e.argv[2] === 'view') return processResult(PULL_REQUEST_VIEW)
     if (e.argv[1] === 'pr' && e.argv[2] === 'diff') return processResult(DIFF)
+    if (e.argv[1] === 'api' && e.argv[2] === 'graphql') return processResult(THREADS)
     if (e.argv[0] === 'git' && e.argv[1] === 'rev-parse') return processResult('/repo\n')
     if (e.argv[1] === 'api' && e.argv[2] === '-H') return processResult(ORDERS_SOURCE)
     posted.push({ argv: e.argv, payload: JSON.parse(String(e.init?.stdin)) })
@@ -267,6 +292,49 @@ test('ext-review: no trivial fix button, since nothing is fixed there', async ($
   const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'ext-review', props: PANE_PROPS })
 
   expect(await ui.find({ key: 'fix-trivial' })).toBeUndefined()
+})
+
+test('self-review: a dismissed finding is remembered for the PR, and the next round is told about it and the answered threads', async ($, on) => {
+  const { store } = github(on)
+
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'self', pr: '12' } as never)
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_record', kind: 'self', source: 'matt', findings: [{ file: 'src/orders.ts', line: 11, summary: 'Holder uses the send time.' }] } as never)
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_mark', kind: 'self', ids: ['matt-1'], status: 'dismissed' } as never)
+
+  expect((store.get('declinedFindings') as Record<string, unknown[]>)['afinzel/vise-tools#12']).toMatchObject([{ file: 'src/orders.ts', line: 11, summary: 'Holder uses the send time.', rule: null }])
+
+  const started = await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'self', pr: '12' } as never)
+  const answer = JSON.parse(String((started as { result: unknown }).result))
+
+  expect(answer.declinedBefore).toMatchObject([{ file: 'src/orders.ts', summary: 'Holder uses the send time.' }])
+  expect(answer.discussedThreads).toEqual([{
+    path: 'src/orders.ts',
+    line: 11,
+    isResolved: false,
+    url: 'https://github.com/afinzel/vise-tools/pull/12#discussion_r1',
+    raised: 'Use the block time here.',
+    lastReply: 'afinzel: No: the send time is right for ordering.',
+  }])
+})
+
+test('self-review: a finding declined before lands settled, with where and why, and is not counted against its rule again', async ($, on) => {
+  const { store } = github(on)
+
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'self', pr: '12' } as never)
+  await $.tool.call({
+    tool: 'mcp__vise-skills__findings_record',
+    kind: 'self',
+    source: 'clean-code',
+    findings: [
+      { file: 'src/orders.ts', line: 11, summary: 'Flag argument.', short_summary: 'Flag argument', rule: 'F3', declined_before: 'dismissed on 2026-11-03' },
+      { file: 'src/orders.ts', line: 12, summary: 'Magic 30.', short_summary: 'Magic 30', rule: 'G25' },
+    ],
+  } as never)
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'self-review', props: PANE_PROPS })
+
+  expect(await ui.find({ key: 'toggle-clean-code-1' })).toBeUndefined()
+  expect(await ui.find({ text: /Flag argument · declined before: dismissed on 2026-11-03/ })).toBeDefined()
+  expect(store.get('cleanCodeRuleTallies')).toEqual({ G25: { raised: 1, dismissed: 0 } })
 })
 
 test('self-review: a rule dismissed again and again is listed for rewording', async ($, on) => {
