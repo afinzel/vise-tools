@@ -135,6 +135,12 @@ export type FindingSeverity = 'high' | 'medium' | 'low'
  */
 export type FindingStatus = 'open' | 'queued' | 'fixing' | 'fixed' | 'posted' | 'dismissed' | 'withdrawn'
 
+/**
+ * Whose problem a finding is. `introduced` and `worsened` belong to the PR; `pre-existing` (on the
+ * base branch, unchanged) and `off-card` (outside the ticket's acceptance criteria) are information.
+ */
+export type FindingScope = 'introduced' | 'worsened' | 'pre-existing' | 'off-card'
+
 export type ReviewFinding = {
   id: string
   source: FindingSource
@@ -149,6 +155,8 @@ export type ReviewFinding = {
   failureScenario: string | null
   /** Whether fixing it changes what others rely on; null when its reviewer did not judge it, as /code-review cannot. */
   isBehaviourChange: boolean | null
+  /** Whether the PR owns it; null when its reviewer did not judge it, and then it counts as the PR's. */
+  scope: FindingScope | null
   category: string | null
   /** The Clean Code rule it breaks, e.g. `G30`; tallied when dismissed, to show which rules keep missing. */
   rule: string | null

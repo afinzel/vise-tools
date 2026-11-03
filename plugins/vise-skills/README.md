@@ -99,6 +99,24 @@ first. Claude's `/code-review` gives no severity or fix of its own: the severity
 category, and Haiku suggests the fix the first time you open the finding. Posted comments lead
 with the severity and end with the suggested fix.
 
+**Scope.** Each finding says whether the PR owns it: `introduced` here, `worsened` here,
+`pre-existing` (the base branch has the same code, quoted as evidence) or `off-card` (outside the
+ticket's acceptance criteria). The last two sit below the rest under **info: not from this PR**.
+Tick all, Step through and the trivial batch pass them by, so a real but old bug doesn't grow the
+PR unless you pick it yourself.
+
+**Behaviour change.** A finding whose fix changes behaviour reads `⚡ behaviour change` in yellow
+on its row, and the header counts them. **Fix N trivial (no behaviour change)** sends every open
+finding the PR owns whose fix leaves behaviour alone, in one batch.
+
+**Severity.** Every reviewer rates by consequence: 🔥 high when it is wrong now, ⚠️ medium when it
+will mislead the next change, 🧹 low for readability alone. That includes Clean Code, which can
+now raise a high when a smell already hides a defect.
+
+**Voting mode** also puts Matt's points and Clean Code's high and medium findings to the voters,
+who set each finding's severity and scope. In standard mode Claude checks Matt's points against
+the code and the base branch before recording them.
+
 Every dismissed Clean Code finding counts against its rule, across sessions. A rule
 dismissed half the time or more, over three or more findings, is listed at the foot of
 the pane as one to reword or drop.

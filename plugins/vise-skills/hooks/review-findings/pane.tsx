@@ -1,7 +1,7 @@
 import type { ElementTable } from 'claude-code'
 
 import type { FindingSeverity, FindingStatus, FindingsReviewKind, FindingsRound, ReviewFinding } from '../../types'
-import { SEVERITY_ICONS, locationOf, sourceLabel } from './findings'
+import { SCOPE_LABELS, SEVERITY_ICONS, isInfo, isTrivialFix, locationOf, sourceLabel } from './findings'
 import type { OftenDismissedRule } from './findings'
 
 export type PaneActions = {
@@ -12,6 +12,7 @@ export type PaneActions = {
   queue: () => void
   fix: () => void
   fixAndComment: () => void
+  fixTrivial: () => void
   dismiss: () => void
   explain: (id: string) => void
   stepThrough: () => void
@@ -42,13 +43,17 @@ export function drawPane(ui: ElementTable, kind: FindingsReviewKind, round: Find
     return <Text color="red">{round.error}</Text>
   }
   const open = round.findings.filter(finding => finding.status === 'open' || finding.status === 'fixing')
+  const openOwn = open.filter(finding => !isInfo(finding))
+  const openInfo = open.filter(isInfo)
   const queued = round.findings.filter(finding => finding.status === 'queued')
   const settled = round.findings.filter(finding => !open.includes(finding) && !queued.includes(finding))
   return (
     <Box flexDirection="column">
       {drawHeader(ui, round)}
       {drawButtons(ui, kind, round, actions)}
-      {open.map(finding => drawFinding(ui, kind, round, finding, actions))}
+      {openOwn.map(finding => drawFinding(ui, kind, round, finding, actions))}
+      {openInfo.length > 0 && <Text dimColor>{`── info: not from this PR (${openInfo.length}) ──`}</Text>}
+      {openInfo.map(finding => drawFinding(ui, kind, round, finding, actions))}
       {queued.length > 0 && drawReviewToPost(ui, queued, actions)}
       {settled.length > 0 && <Text dimColor>{`── done (${settled.length}) ──`}</Text>}
       {settled.map(finding => drawSettled(ui, finding))}
@@ -60,13 +65,18 @@ export function drawPane(ui: ElementTable, kind: FindingsReviewKind, round: Find
 function drawHeader(ui: ElementTable, round: FindingsRound) {
   const { Box, Text } = ui
   const target = round.pullRequest === null ? 'this branch (no PR: posting is off)' : `#${round.pullRequest.number} ${round.pullRequest.title}`
+  const open = round.findings.filter(finding => finding.status === 'open')
+  const behaviourChanges = open.filter(finding => finding.isBehaviourChange === true && !isInfo(finding)).length
+  const info = open.filter(isInfo).length
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text bold>{target}</Text>
       <Text dimColor>
         {round.findings.length} findings
+        {info > 0 ? ` · ${info} info` : ''}
         {round.sourcesPending.length > 0 ? ` · waiting on ${round.sourcesPending.map(sourceLabel).join(', ')}` : ''}
       </Text>
+      {behaviourChanges > 0 && <Text color="yellow" bold>{`⚡ ${behaviourChanges} open ${behaviourChanges === 1 ? 'fix changes' : 'fixes change'} behaviour`}</Text>}
     </Box>
   )
 }
@@ -77,11 +87,13 @@ function drawButtons(ui: ElementTable, kind: FindingsReviewKind, round: Findings
   const ticked = round.findings.filter(finding => finding.isSelected).length
   const canPost = round.pullRequest !== null
   const queuedCount = round.findings.filter(finding => finding.status === 'queued').length
-  const hasOpen = round.findings.some(finding => finding.status === 'open')
+  const hasOpen = round.findings.some(finding => finding.status === 'open' && !isInfo(finding))
+  const trivialCount = round.findings.filter(isTrivialFix).length
   return (
     <Box flexDirection="column" marginBottom={1}>
       {canPost && queuedCount > 0 && <Button key="submit-review" hotkey="s" variant="primary" onPress={actions.submitReview}>{`Submit review (${queuedCount})`}</Button>}
       {hasOpen && ticked === 0 && <Button key="step-through" hotkey="t" onPress={actions.stepThrough}>Step through</Button>}
+      {kind === 'self' && ticked === 0 && trivialCount > 0 && <Button key="fix-trivial" hotkey="b" onPress={actions.fixTrivial}>{`Fix ${trivialCount} trivial (no behaviour change)`}</Button>}
       <Button key="select-all" hotkey="a" onPress={actions.selectAll}>Tick all</Button>
       {ticked > 0 && <Button key="select-none" hotkey="u" onPress={actions.selectNone}>Untick all</Button>}
       {kind === 'self' && ticked > 0 && <Button key="fix" hotkey="f" onPress={actions.fix}>{`Fix ${ticked}`}</Button>}
@@ -103,8 +115,8 @@ function drawFinding(ui: ElementTable, kind: FindingsReviewKind, round: Findings
         </Button>
         <Button key={`expand-${finding.id}`} plain onPress={() => actions.expand(finding.id)}>
           {drawSeverity(ui, finding)}{' · '}
-          {finding.isBehaviourChange === true ? '⚡ ' : ''}
-          {finding.shortSummary} <Text dimColor>{`${locationOf(finding)} · ${tagOf(finding)}${finding.status === 'fixing' ? ' · fixing…' : ''}`}</Text>
+          {finding.isBehaviourChange === true && <Text color="yellow" bold>⚡ behaviour change · </Text>}
+          {finding.shortSummary} <Text dimColor>{`${locationOf(finding)} · ${tagOf(finding)}${isInfo(finding) ? ` · ${SCOPE_LABELS[finding.scope!]}` : ''}${finding.status === 'fixing' ? ' · fixing…' : ''}`}</Text>
         </Button>
       </Box>
       {isExpanded && drawDetail(ui, kind, round, finding, actions)}
@@ -123,8 +135,9 @@ function drawDetail(ui: ElementTable, kind: FindingsReviewKind, round: FindingsR
       {finding.excerpt !== null && <Code source={finding.excerpt.source} path={finding.file} startLine={finding.excerpt.startLine} format={finding.excerpt.format} />}
       <Text>{finding.summary}</Text>
       {finding.failureScenario !== null && <Text dimColor>{finding.failureScenario}</Text>}
-      {finding.isBehaviourChange === true && <Text color="yellow">⚡ Fixing it changes behaviour</Text>}
+      {finding.isBehaviourChange === true && <Text color="yellow" bold>⚡ Fixing it changes behaviour: callers, users or other systems will see a difference</Text>}
       {finding.isBehaviourChange === false && <Text dimColor>Fixing it leaves behaviour alone</Text>}
+      {finding.scope !== null && <Text dimColor={!isInfo(finding)} color={isInfo(finding) ? 'cyan' : undefined}>{`Scope: ${SCOPE_LABELS[finding.scope]}${isInfo(finding) ? ' — information, not this PR\'s to fix' : ''}`}</Text>}
       {finding.isSuggestingFix && <Text dimColor>Suggesting a fix…</Text>}
       {finding.suggestedFix !== null && <Text bold>Suggested fix</Text>}
       {finding.suggestedFix !== null && <Text>{finding.suggestedFix}</Text>}

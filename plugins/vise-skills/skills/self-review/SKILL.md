@@ -19,6 +19,8 @@ Call `mcp__vise-skills__findings_start` with `kind: "self"`, and `pr` when the u
 
 **The fixed point:** use the PR's base branch, or the repository's default branch when there is no PR. Compare with `git diff <base>...HEAD` (three dots, against the merge-base).
 
+**The card.** Find the ticket key in the PR title or branch (e.g. `DTP3-252`) and read the ticket's acceptance criteria, through the Atlassian connector when it reaches that Jira site. These criteria, not the PR description, decide what is `off-card`. With no ticket, or none you can read, use the PR's title as the purpose and say so in one line: then nothing is judged `off-card`.
+
 **Ask which mode.** Before starting the reviewers, ask with `AskUserQuestion` (header "Mode"):
 - **Standard:** Claude's /code-review runs once, as below.
 - **Voting (trial):** the same bug review runs three times in parallel with no cap on findings, then three voters judge every finding. Nothing is dropped; each finding says how many runs raised it and how many voters think it is real. Slower, and costs more.
@@ -31,13 +33,15 @@ Start all three, then record each one's findings as it finishes.
 
 **Behaviour change.** Every finding you record says, in `is_behaviour_change`, whether fixing it would change what callers, users or other systems can rely on. Paste this definition into each brief that asks for it: *"`is_behaviour_change` is true when the fix changes a return value or shape, makes an operation no longer atomic, changes an exception or when it is thrown, changes data persisted or sent, reorders side effects, or changes retry, timeout or config defaults. It is false for names, comments, formatting, dead code, a pure refactor, and log wording, levels or extra log lines, unless something depends on that log: an alert or metric built on it, an audit trail, a structured field someone queries. When in doubt, true."*
 
+**Scope.** Every finding you record also says, in `scope`, whether the PR owns it. A real defect is not enough: one the base branch already had, or work the ticket never asked for, grows the PR when it is fixed there. The pane shows `pre-existing` and `off-card` findings apart, as information, and leaves them out of Tick all, Step through and the trivial batch. Paste this definition into each brief that asks for it, with the card's acceptance criteria: *"`scope` is `introduced` when the change causes it. `worsened` when the base branch already has it and the change makes it more likely or worse. `pre-existing` when the base branch has the same code and the change leaves it as it was: quote that code from `git show <base>:<file>` as `base_quote`. `off-card` when it is new, but fixing it delivers something the card's acceptance criteria do not ask for, such as a promise the PR description makes and the card does not. When in doubt between two, choose the one nearer the PR: introduced, then worsened, then off-card, then pre-existing."*
+
 **Clean Code.**
 - Spawn one `Agent` (general-purpose) in the background, and give it:
   - the diff command
   - the path of `clean-code-rules.md` in this skill's directory
   - the behaviour-change definition above
-  - this brief: *"Read the rules, then the diff and enough surrounding code to judge it. Report each place the change breaks a rule, as JSON lines: `{"file", "line", "rule", "severity", "summary", "short_summary", "failure_scenario", "suggested_fix", "is_behaviour_change"}`. `suggested_fix` is the change that would satisfy the rule, in at most three sentences or a short snippet. `severity` is `low` for style and readability, and `medium` when it would hide a bug or mislead the next change. `line` is the head-side line. `summary` is one sentence. `failure_scenario` says what it costs a reader or caller. Judge only lines the diff adds or changes. Skip anything a linter or formatter enforces. When unsure whether a rule is broken, leave it out."*
-- When it answers, call `mcp__vise-skills__findings_record` with `source: "clean-code"`.
+  - this brief: *"Read the rules, then the diff and enough surrounding code to judge it. Report each place the change breaks a rule, as JSON lines: `{"file", "line", "rule", "severity", "summary", "short_summary", "failure_scenario", "suggested_fix", "is_behaviour_change"}`. `suggested_fix` is the change that would satisfy the rule, in at most three sentences or a short snippet. `severity` is set by what the smell costs, not by which rule it breaks: `high` when it already hides a defect, i.e. two paths that should agree now behave differently, or a doc or name states behaviour the code does not have and a caller relies on it; `medium` when it will mislead the next change: a stale or wrong doc or name, a business rule copied where the copies can drift, risky logic (money, auth, data written or sent) left untested; `low` for readability alone: naming, ordering, parameter count, a predicate to extract. Most findings are low. A `high` one is a bug as well as a smell: say in `failure_scenario` what goes wrong and when. `line` is the head-side line. `summary` is one sentence. `failure_scenario` says what it costs a reader or caller. Judge only lines the diff adds or changes. Skip anything a linter or formatter enforces. When unsure whether a rule is broken, leave it out."*
+- When it answers, call `mcp__vise-skills__findings_record` with `source: "clean-code"` and `scope: "introduced"` on each: it judges only lines the diff adds or changes. In voting mode, hold back its `high` and `medium` findings for the voters first; record the `low` ones now.
 
 **Claude's /code-review.** In voting mode, run *Voting mode* below instead.
 - Run Claude Code's built-in code review skill. This is the one that reports through `ReportFindings`, *not* `mattpocock-skills:code-review`.
@@ -47,25 +51,28 @@ Start all three, then record each one's findings as it finishes.
 
 **Matt's code-review.**
 - Invoke `mattpocock-skills:code-review` as it is, with the fixed point above. Let it ask what it asks: a spec, or to run `/setup-matt-pocock-skills`.
-- When its report is in, call `findings_record` with `source: "matt"`, one finding per point it raised.
+- Its report goes in unjudged: Matt runs once and nobody tries to disprove its points. So before recording, turn each point into a finding, then judge it.
   - `category` is `standards` or `spec`.
-  - `severity`: `high` for a spec requirement missing or wrongly built, `medium` for a hard standards breach, `low` for a smell.
+  - `severity`: `high` for a requirement of the **card** missing or wrongly built, `medium` for a hard standards breach, `low` for a smell. A spec point against a promise only the PR description makes is not high: it is `off-card`.
   - Name the smell or standard in the summary.
   - `suggested_fix`: Matt's fix line when its report gives one, else your own short one.
   - `is_behaviour_change`: your own call on that fix, by the definition above.
   - Points without a line take the file alone.
+- **Standard mode:** judge each point yourself before recording. Read the code at HEAD and try to disprove it; drop a point that does not hold up, and say so in one line. Set `scope` by the definition above: look at the same code on the base branch before you call anything `introduced`.
+- **Voting mode:** the voters judge Matt's points with Claude's (step 3 below). Record them after the vote.
+- Then call `findings_record` with `source: "matt"`.
 
 Record an empty list for a reviewer that found nothing, so the pane stops waiting on it.
 
 ### Voting mode
 
-This takes the place of Claude's /code-review, and records under its source, `claude`. Separate agents find; separate agents judge. The vote labels each finding and never drops one: on your own branch a false positive costs one Dismiss, a dropped bug costs more.
+This takes the place of Claude's /code-review, and records under its source, `claude`. Its voters also judge Matt's points and Clean Code's `high` and `medium` findings, which otherwise go in unchallenged. Separate agents find; separate agents judge. The vote labels each finding and never drops one: on your own branch a false positive costs one Dismiss, a dropped bug costs more.
 
 Two numbers come out of it. **Raised** is how many of the three runs found it: one review run several times finds a different set each time, so a finding most runs agree on is likely solid. **Real** is how many voters, checking it against the code, think it holds. Real is the main signal. A finding raised by one run but judged real by all three voters is a real bug only one run happened to catch.
 
 **1. Three reviewers.** Spawn three general-purpose `Agent`s in the background, in one message, each with the diff command and the same brief. Do not give them different focuses: the runs must be comparable for Raised to mean anything.
 
-Brief: *"Read the diff and as much surrounding code as you need. Report every defect the change introduces or exposes, with no cap, including ones you are unsure of. Defects only: skip style, naming and cleanup. Answer as JSON lines: `{"file", "line", "quote", "severity", "summary", "short_summary", "failure_scenario", "suggested_fix"}`. `line` is the line number in the file at HEAD, never a position in the diff. `quote` is that line's text, copied exactly. `severity` is `high` for wrong behaviour, data loss or a security hole, `medium` for a real cost a reviewer would ask to fix, `low` otherwise."*
+Brief, with the scope definition and the card: *"Read the diff and as much surrounding code as you need. Report every defect the change introduces or makes worse, with no cap, including ones you are unsure of. A defect the base branch already has, which the change leaves as it was, is not this review's: report it only when it is high, as `pre-existing`. Defects only: skip style, naming and cleanup. Answer as JSON lines: `{"file", "line", "quote", "severity", "scope", "base_quote", "summary", "short_summary", "failure_scenario", "suggested_fix"}`. `line` is the line number in the file at HEAD, never a position in the diff. `quote` is that line's text, copied exactly. `severity` is `high` for wrong behaviour, data loss or a security hole, `medium` for a real cost a reviewer would ask to fix, `low` otherwise."*
 
 **2. Merge.** When all three have answered, merge the findings that are the same defect told two ways. The runs word things differently and often anchor the same defect to different lines (the call site, the method), so match on meaning, not text or line.
 - **Narrow first:** only findings in the same file, or touching the same method or call chain, are candidates for a merge.
@@ -74,27 +81,31 @@ Brief: *"Read the diff and as much surrounding code as you need. Report every de
 - **When unsure, keep them apart.** A missed merge shows a near-duplicate, which costs one Dismiss. A wrong merge buries one bug inside another and inflates Raised.
 - Number the results `v1`, `v2`, … Keep, for each, the clearest wording, the shared-cause sentence, Raised (how many runs found it, at most 3), and which run findings it came from.
 
-**3. Three voters.** Spawn three `Agent`s with `model: "haiku"` in the background, in one message. Give each the diff command, the merged list (id, file, line, quote, summary, failure_scenario, suggested_fix, and for a merged finding its shared-cause sentence and the original findings it came from), the behaviour-change definition above, and this brief: *"Judge every finding on its own, against the code at HEAD. Try to disprove it. Answer as JSON lines: `{"id", "isReal", "isOneDefect", "tag", "is_behaviour_change", "line", "quote", "reason"}`. `isOneDefect` is for a merged finding only: true when its originals really are one defect with one cause and one fix. `is_behaviour_change` is about the suggested fix. `isReal` is true only when the code does what the finding says and it matters. `tag` is `important` for a defect this change introduces, `nit` for a real but minor one, `pre-existing` for one that predates this change. `line` and `quote` are the line the finding belongs on, read from the file at HEAD. `reason` is one sentence."*
+**3. Three voters.** Wait for Matt's report and Clean Code's too. Give Matt's points ids `m1`, `m2`, … and Clean Code's `high` and `medium` findings `c1`, `c2`, … Then spawn three `Agent`s with `model: "haiku"` in the background, in one message. Give each the diff command, the base branch, the card's acceptance criteria, the whole list (id, file, line, quote, scope, base_quote, summary, failure_scenario, suggested_fix, and for a merged finding its shared-cause sentence and the original findings it came from), the behaviour-change and scope definitions above, and this brief: *"Judge every finding on its own, against the code at HEAD. Try to disprove it. Answer as JSON lines: `{"id", "isReal", "isOneDefect", "scope", "severity", "is_behaviour_change", "line", "quote", "reason"}`. `isOneDefect` is for a merged finding only: true when its originals really are one defect with one cause and one fix. `is_behaviour_change` is about the suggested fix. `isReal` is true only when the code does what the finding says and it matters. `scope` is your own call: before agreeing a finding is `introduced`, read the same code with `git show <base>:<file>`; before agreeing it is `pre-existing`, check its base_quote is really there. `severity` is `high` for wrong behaviour, data loss or a security hole, `medium` for a real cost a reviewer would ask to fix, `low` otherwise. `line` and `quote` are the line the finding belongs on, read from the file at HEAD. `reason` is one sentence."*
 
 **4. Split what the voters reject.** A merged finding most voters mark `isOneDefect: false` goes back to its originals, each with Raised 1 and a note in its failure_scenario that the merge was undone. Do not re-vote them; carry the votes the merged finding got.
 
-**5. Record.** Call `findings_record` once with `source: "claude"` and every finding:
-- `short_summary`: lead with both numbers and the majority tag, then the claim, e.g. `2/3 raised · 3/3 real · important: breaker shared`. Keep the claim short enough to read in the pane.
+**5. Record.** Call `findings_record` once per source: `claude` for the `v` findings, `matt` for the `m` ones, `clean-code` for the `c` ones (with their rule). For each finding:
+- `short_summary`: lead with the numbers, then the claim. A `v` finding has both, e.g. `2/3 raised · 3/3 real: breaker shared`; an `m` or `c` finding was raised once, so only `3/3 real: …`. Keep the claim short enough to read in the pane.
 - `line`: the line most voters gave, when their quote matches the file at that line; otherwise the reviewer's line, when its quote matches. When neither matches, leave `line` out and say so in the summary.
 - `failure_scenario`: the reviewer's, then a last line with the vote and any dissenting voter's reason, e.g. `Vote 2/3. Dissent: the caller already retries.` For a merged finding, also its shared-cause sentence.
-- `severity`: the reviewer's, unchanged.
+- `severity`: the majority of the voters. With no majority, the middle of the three. A finding most voters judge not real drops to `low`: it stays visible, at the bottom.
+- `scope`: the majority of the voters. With no majority, the one nearest the PR, in the order the definition gives.
 - `is_behaviour_change`: the majority of the voters.
 
 ## 3. Hand over
 
-**Pane shown:** in one or two lines, say how many findings each reviewer raised (in voting mode, also how many most voters judged real, and how many of those only one run raised), then that the user ticks findings in the pane and chooses:
+**Pane shown:** in one or two lines, say how many findings each reviewer raised (in voting mode, also how many most voters judged real, and how many of those only one run raised), how many are information (`pre-existing` or `off-card`), and how many open fixes change behaviour. Then say that the user ticks findings in the pane and chooses:
+- **Fix N trivial (no behaviour change):** sends every open finding the PR owns and whose fix leaves behaviour alone, in one batch.
 - **Fix:** sends them to you to fix.
 - **Fix + comment:** fix, commit, push, then post a comment per fix saying what changed.
 - **Add to review:** build a review; **Submit review** posts it to the PR as one.
 - **Dismiss:** drop them; a dismissed Clean Code finding counts against its rule.
 - **More info:** on an expanded finding.
 
-Or they press **Step through** to walk the open findings one at a time. Each one shows its code, severity and a suggested fix, with Fix, Add to review, Dismiss, More info and Next for that finding alone.
+Information sits below the PR's own findings, under its own heading. The user can still tick one and fix it; nothing else picks it up. When a fix prompt arrives for one, fix that finding alone: do not widen it to the code around it.
+
+Or they press **Step through** to walk the PR's own open findings one at a time. Each one shows its code, severity and a suggested fix, with Fix, Add to review, Dismiss, More info and Next for that finding alone.
 
 Then stop.
 
@@ -106,8 +117,9 @@ PRs open as drafts, and leaving draft is the signal that the PR is handed over: 
 Ready for PR status follows it. Self-review usually takes several rounds, so this comes at the end of
 the loop, never in the middle of it.
 
-**When:** the PR is still a draft, and either a round ends with no open findings (every one fixed,
-dismissed or withdrawn, or the round found nothing), or the user says they are done reviewing. Fixes
+**When:** the PR is still a draft, and either a round ends with none of the PR's own findings open
+(every one fixed, dismissed or withdrawn, or the round found nothing; information may stay open),
+or the user says they are done reviewing. Fixes
 are pushed. Skip it when there is no PR, or the PR is already out of draft.
 
 **Ask, never assume:** with `AskUserQuestion` (header "Ready?"): *"Self-review is clean. Mark PR #N
@@ -124,7 +136,7 @@ from step 1.
 
 ## No pane
 
-The VS Code panel draws no panes. Here, list the findings in chat, grouped by reviewer, each with its severity icon (🔥 high, ⚠️ medium, 🧹 low), id, location and summary. Then ask with `AskUserQuestion` (`multiSelect: true`) which to fix and which to post. Act on the answer:
+The VS Code panel draws no panes. Here, list the findings in chat, grouped by reviewer, each with its severity icon (🔥 high, ⚠️ medium, 🧹 low), id, location and summary, and `⚡ behaviour change` after any whose fix changes behaviour. List information (`pre-existing`, `off-card`) last, under its own heading. Then ask with `AskUserQuestion` (`multiSelect: true`) which to fix and which to post. Act on the answer:
 - `findings_post` for the ones to post.
 - Fix the rest, then `findings_mark`.
 - Mark the ones the user rejects `dismissed`. They count against their Clean Code rule.

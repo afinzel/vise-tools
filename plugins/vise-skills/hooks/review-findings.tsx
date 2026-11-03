@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { FindingSource, FindingStatus, FindingsReviewKind, FindingsRound, PullRequestRef, ReviewFinding, RuleTally } from '../types'
 import { BEHAVIOUR_CHANGE_DEFINITION } from './behaviour-change'
+import { FINDING_SCOPE_DEFINITION } from './finding-scope'
 import { REPOSITORY_ROOT_ARGV, fileAtHeadArgv, parsePullRequest, parsePullRequestTarget, pullRequestViewArgv } from './review-comments/github-threads'
 import {
   bySeverity,
@@ -12,6 +13,8 @@ import {
   findingExcerpt,
   findingsFrom,
   fixPrompt,
+  isInfo,
+  isTrivialFix,
   nextOpenAfter,
   oftenDismissedRules,
   pullRequestDiffArgv,
@@ -125,6 +128,7 @@ export async function registerFindingsTools($: EngineInterface) {
               suggested_fix: { type: 'string', description: 'The change that would settle it: at most three sentences, or a short snippet with one line on what it changes.' },
               severity: { enum: ['high', 'medium', 'low'], description: 'high: wrong behaviour, data loss or a security hole; medium: a real cost a reviewer would ask to fix; low: style and readability.' },
               is_behaviour_change: { type: 'boolean', description: `${BEHAVIOUR_CHANGE_DEFINITION} Leave out when the reviewer did not judge it.` },
+              scope: { enum: ['introduced', 'worsened', 'pre-existing', 'off-card'], description: `Whether the PR owns it. ${FINDING_SCOPE_DEFINITION} pre-existing and off-card show apart, as information. Leave out when nobody judged it.` },
             },
           },
         },
@@ -207,11 +211,12 @@ function paneActions($: EngineInterface, kind: FindingsReviewKind): PaneActions 
   return {
     toggle: id => setSelected(finding => (finding.id === id ? !finding.isSelected : finding.isSelected)),
     expand: id => void toggleOpen($, kind, id),
-    selectAll: () => setSelected(() => true),
+    selectAll: () => setSelected(finding => !isInfo(finding)),
     selectNone: () => setSelected(() => false),
     queue: () => void tickedIds($, kind).then(ids => updateFindings($, kind, findings => withStatus(findings, ids, 'queued'))),
     fix: () => void tickedIds($, kind).then(ids => submitFix($, kind, ids, { isCommenting: false })),
     fixAndComment: () => void tickedIds($, kind).then(ids => submitFix($, kind, ids, { isCommenting: true })),
+    fixTrivial: () => void readRound($, kind).then(round => submitFix($, kind, round.findings.filter(isTrivialFix).map(finding => finding.id), { isCommenting: false })),
     dismiss: () => void tickedIds($, kind).then(ids => markFindings($, kind, ids, 'dismissed')),
     explain: id => void explain($, kind, id),
     stepThrough: () => void openNextAfter($, kind, null),

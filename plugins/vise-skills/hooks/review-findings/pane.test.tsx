@@ -188,8 +188,9 @@ test('self-review: a finding whose fix changes behaviour is marked ⚡, and an o
   } as never)
   const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'self-review', props: PANE_PROPS })
 
-  expect((await ui.find({ key: 'expand-claude-1' }))?.text).toMatch(/^🔥 high · ⚡ Not atomic/)
+  expect((await ui.find({ key: 'expand-claude-1' }))?.text).toMatch(/^🔥 high · ⚡ behaviour change · Not atomic/)
   expect((await ui.find({ key: 'expand-claude-2' }))?.text).toMatch(/^🧹 low · Typo in log/)
+  expect(await ui.find({ text: /⚡ 1 open fix changes behaviour/ })).toBeDefined()
 
   await ui.press({ key: 'expand-claude-1' })
   expect(await ui.find({ text: /⚡ Fixing it changes behaviour/ })).toBeDefined()
@@ -197,6 +198,75 @@ test('self-review: a finding whose fix changes behaviour is marked ⚡, and an o
   expect(await ui.find({ text: /Fixing it leaves behaviour alone/ })).toBeDefined()
   await ui.press({ key: 'expand-claude-3' })
   expect(await ui.find({ text: /Fixing it (changes|leaves) behaviour/ })).toBeUndefined()
+})
+
+test('self-review: findings from outside the PR show apart as information, and Tick all and Step through pass them by', async ($, on) => {
+  github(on)
+
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'self' } as never)
+  await $.tool.call({
+    tool: 'mcp__vise-skills__findings_record',
+    kind: 'self',
+    source: 'matt',
+    findings: [
+      { file: 'src/orders.ts', line: 11, summary: 'Old holder check.', short_summary: 'Old holder check', severity: 'high', scope: 'pre-existing' },
+      { file: 'src/orders.ts', line: 12, summary: 'New window bug.', short_summary: 'New window bug', severity: 'medium', scope: 'introduced' },
+      { file: 'src/orders.ts', line: 13, summary: 'Not on the ticket.', short_summary: 'Not on the ticket', severity: 'low', scope: 'off-card' },
+    ],
+  } as never)
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'self-review', props: PANE_PROPS })
+
+  expect(await ui.find({ text: /3 findings · 2 info/ })).toBeDefined()
+  expect(await ui.find({ text: /info: not from this PR \(2\)/ })).toBeDefined()
+  expect((await ui.find({ key: 'expand-matt-1' }))?.text).toMatch(/pre-existing/)
+
+  await ui.press({ key: 'select-all' })
+  expect((await ui.find({ key: 'fix' }))?.text).toBe('Fix 1')
+  await ui.press({ key: 'select-none' })
+
+  await ui.press({ key: 'step-through' })
+  expect(await ui.find({ key: 'fix-matt-2' })).toBeDefined()
+  await ui.press({ key: 'expand-matt-1' })
+  expect(await ui.find({ text: /Scope: pre-existing — information/ })).toBeDefined()
+})
+
+test('self-review: Fix trivial sends only the PR\'s own findings that leave behaviour alone', async ($, on) => {
+  github(on)
+  const submitted: string[] = []
+  on('prompt.submit', async ($, e) => {
+    submitted.push(e.text)
+    return { drop: 'captured by the test' }
+  })
+
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'self' } as never)
+  await $.tool.call({
+    tool: 'mcp__vise-skills__findings_record',
+    kind: 'self',
+    source: 'clean-code',
+    findings: [
+      { file: 'src/orders.ts', line: 11, summary: 'Rename.', short_summary: 'Rename', rule: 'N1', is_behaviour_change: false },
+      { file: 'src/orders.ts', line: 12, summary: 'Retry.', short_summary: 'Retry', rule: 'G1', is_behaviour_change: true },
+      { file: 'src/orders.ts', line: 13, summary: 'Old rename.', short_summary: 'Old rename', rule: 'N1', is_behaviour_change: false, scope: 'pre-existing' },
+      { file: 'src/orders.ts', line: 14, summary: 'Extract.', short_summary: 'Extract', rule: 'G30', is_behaviour_change: false },
+    ],
+  } as never)
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'self-review', props: PANE_PROPS })
+
+  expect((await ui.find({ key: 'fix-trivial' }))?.text).toBe('Fix 2 trivial (no behaviour change)')
+  await ui.press({ key: 'fix-trivial' })
+
+  expect(submitted[0]).toMatch(/Fix these review findings \(clean-code-1, clean-code-4\)/)
+  expect(await ui.find({ key: 'fix-trivial' })).toBeUndefined()
+})
+
+test('ext-review: no trivial fix button, since nothing is fixed there', async ($, on) => {
+  github(on)
+
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_start', kind: 'ext', pr: '12' } as never)
+  await $.tool.call({ tool: 'mcp__vise-skills__findings_record', kind: 'ext', source: 'claude', findings: [{ file: 'src/orders.ts', summary: 'Rename.', is_behaviour_change: false }] } as never)
+  const ui = await $.ui.mount({ plugin: 'vise-skills', surface: 'terminal', component: 'Pane', requestId: 'ext-review', props: PANE_PROPS })
+
+  expect(await ui.find({ key: 'fix-trivial' })).toBeUndefined()
 })
 
 test('self-review: a rule dismissed again and again is listed for rewording', async ($, on) => {

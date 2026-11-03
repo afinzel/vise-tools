@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { commentableLines, commentBody, findingsFrom, fixPrompt, withCurrentFields,oftenDismissedRules, reviewPayload, tallyDismissed, tallyRaised } from './findings'
+import { commentableLines, commentBody, findingsFrom, fixPrompt, isInfo, isTrivialFix, listLine, nextOpenAfter, withCurrentFields, oftenDismissedRules, reviewPayload, tallyDismissed, tallyRaised } from './findings'
 
 const PULL_REQUEST = { owner: 'afinzel', repo: 'vise-tools', number: 12, title: 'Orders', url: 'https://github.com/afinzel/vise-tools/pull/12', headBranch: 'feat/orders', headCommit: 'abc123' }
 
@@ -96,10 +96,61 @@ test('a fix prompt holds a finding judged not to change behaviour to that', asyn
 
 test('a finding from before severity and suggested fixes existed still makes a comment', async () => {
   const [current] = findingsFrom('matt', [{ file: 'a.ts', line: 3, summary: 'Contradicts nullable.', category: 'standards' }], [])
-  const { severity, suggestedFix, isSuggestingFix, excerpt, isBehaviourChange, ...older } = current!
+  const { severity, suggestedFix, isSuggestingFix, excerpt, isBehaviourChange, scope, ...older } = current!
 
   const upgraded = withCurrentFields(older as never)
 
-  expect(upgraded).toMatchObject({ severity: 'low', suggestedFix: null, isSuggestingFix: false, excerpt: null, isBehaviourChange: null })
+  expect(upgraded).toMatchObject({ severity: 'low', suggestedFix: null, isSuggestingFix: false, excerpt: null, isBehaviourChange: null, scope: null })
   expect(commentBody(upgraded, 'Dropped the ?.')).toBe('Dropped the ?.\n\n> 🧹 *nit:* Contradicts nullable.')
+})
+
+test('a finding takes the scope its reviewer judged, and nothing for a scope it does not know', async () => {
+  const findings = findingsFrom('matt', [
+    { file: 'a.ts', summary: 'New bug.', scope: 'introduced' },
+    { file: 'a.ts', summary: 'Old bug made likelier.', scope: 'Worsened' },
+    { file: 'a.ts', summary: 'Old bug.', scope: 'pre-existing' },
+    { file: 'a.ts', summary: 'Not on the ticket.', scope: 'off-card' },
+    { file: 'a.ts', summary: 'Unjudged.' },
+    { file: 'a.ts', summary: 'Made up.', scope: 'elsewhere' },
+  ], [])
+
+  expect(findings.map(finding => finding.scope)).toEqual(['introduced', 'worsened', 'pre-existing', 'off-card', null, null])
+  expect(findings.map(isInfo)).toEqual([false, false, true, true, false, false])
+})
+
+test('only the PR\'s own open findings judged not to change behaviour are trivial', async () => {
+  const [trivial, behaviour, unjudged, preExisting] = findingsFrom('clean-code', [
+    { file: 'a.ts', summary: 'Rename.', is_behaviour_change: false },
+    { file: 'a.ts', summary: 'Retry.', is_behaviour_change: true },
+    { file: 'a.ts', summary: 'Unjudged.' },
+    { file: 'a.ts', summary: 'Old rename.', is_behaviour_change: false, scope: 'pre-existing' },
+  ], [])
+
+  expect([trivial!, behaviour!, unjudged!, preExisting!].map(isTrivialFix)).toEqual([true, false, false, false])
+  expect(isTrivialFix({ ...trivial!, status: 'fixed' })).toBe(false)
+})
+
+test('chat, fix prompts and comments flag a behaviour change and a finding from outside the PR', async () => {
+  const [behaviour, preExisting] = findingsFrom('claude', [
+    { file: 'a.ts', line: 3, summary: 'Writes are not atomic.', is_behaviour_change: true, scope: 'introduced' },
+    { file: 'a.ts', line: 9, summary: 'Holder uses the send time.', scope: 'pre-existing' },
+  ], [])
+
+  expect(listLine(behaviour!)).toMatch(/Writes are not atomic\. ⚡ behaviour change$/)
+  expect(listLine(preExisting!)).toMatch(/send time\. · info: pre-existing$/)
+  const prompt = fixPrompt('self', [behaviour!, preExisting!], { isCommenting: false })
+  expect(prompt).toMatch(/Changes behaviour: say what callers will see differently\./)
+  expect(prompt).toMatch(/pre-existing, not from this PR: fix this alone, and nothing next to it\./)
+  expect(commentBody(preExisting!)).toMatch(/send time\. \*\(pre-existing, not from this PR\)\*/)
+})
+
+test('step through skips information', async () => {
+  const findings = findingsFrom('claude', [
+    { file: 'a.ts', summary: 'Old.', scope: 'pre-existing' },
+    { file: 'a.ts', summary: 'New.', scope: 'introduced' },
+    { file: 'a.ts', summary: 'Off the ticket.', scope: 'off-card' },
+  ], [])
+
+  expect(nextOpenAfter(findings, null)?.id).toBe('claude-2')
+  expect(nextOpenAfter(findings, 'claude-2')).toBeUndefined()
 })

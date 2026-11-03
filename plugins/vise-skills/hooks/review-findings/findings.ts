@@ -1,4 +1,4 @@
-import type { CodeExcerpt, FindingSeverity, FindingSource, FindingStatus, FindingsReviewKind, PullRequestRef, ReviewFinding, RuleTally } from '../../types'
+import type { CodeExcerpt, FindingScope, FindingSeverity, FindingSource, FindingStatus, FindingsReviewKind, PullRequestRef, ReviewFinding, RuleTally } from '../../types'
 import { referenceExcerpt } from '../review-comments/github-threads'
 
 /** A finding as a reviewer reports it: ReportFindings' shape, plus the Clean Code rule when there is one. */
@@ -13,6 +13,7 @@ export type ReportedFinding = {
   severity?: string
   suggested_fix?: string
   is_behaviour_change?: boolean
+  scope?: string
 }
 
 export type ReviewComment = { path: string; line: number; side: 'RIGHT'; body: string }
@@ -26,6 +27,15 @@ const SOURCE_LABELS: Record<FindingSource, string> = {
 
 const SHORT_SUMMARY_LENGTH = 60
 const SEVERITIES: readonly FindingSeverity[] = ['high', 'medium', 'low']
+const SCOPES: readonly FindingScope[] = ['introduced', 'worsened', 'pre-existing', 'off-card']
+/** Scopes the PR does not own: shown apart as information, and left out of Tick all, Step through and the trivial batch. */
+const INFO_SCOPES: readonly FindingScope[] = ['pre-existing', 'off-card']
+export const SCOPE_LABELS: Record<FindingScope, string> = {
+  introduced: 'introduced here',
+  worsened: 'made worse here',
+  'pre-existing': 'pre-existing',
+  'off-card': 'off-card',
+}
 /** One icon per severity, the same in the pane, in chat and on GitHub: must fix, should fix, tidy-up. */
 export const SEVERITY_ICONS: Record<FindingSeverity, string> = { high: '🔥', medium: '⚠️', low: '🧹' }
 
@@ -55,6 +65,7 @@ export function findingsFrom(source: FindingSource, reported: readonly ReportedF
     isSuggestingFix: false,
     failureScenario: finding.failure_scenario?.trim() || null,
     isBehaviourChange: finding.is_behaviour_change ?? null,
+    scope: scopeOf(finding.scope),
     category: finding.category ?? null,
     rule: finding.rule?.trim().toUpperCase() || null,
     status: 'open',
@@ -116,12 +127,25 @@ export function commentBody(finding: ReviewFinding, note?: string): string {
   const suggestion = finding.suggestedFix === null ? '' : `\n\n**Suggested fix:** ${finding.suggestedFix}`
   const rule = finding.rule === null ? '' : ` (Clean Code ${finding.rule})`
   const lead = note === undefined ? '' : `${note.trim()}\n\n> `
-  return `${lead}${SEVERITY_BADGES[finding.severity]} ${finding.summary}${rule}${note === undefined ? `${scenario}${suggestion}` : ''}`
+  const outsidePr = isInfo(finding) ? ` *(${SCOPE_LABELS[finding.scope!]}, not from this PR)*` : ''
+  return `${lead}${SEVERITY_BADGES[finding.severity]} ${finding.summary}${rule}${outsidePr}${note === undefined ? `${scenario}${suggestion}` : ''}`
 }
 
-/** A finding as one line of chat: icon, id, where, and what. */
+/** A finding as one line of chat: icon, id, where, and what; then whether it changes behaviour and whose it is, when judged. */
 export function listLine(finding: ReviewFinding): string {
-  return `${SEVERITY_ICONS[finding.severity]} **${finding.id}** ${locationOf(finding)}: ${finding.summary}`
+  const behaviour = finding.isBehaviourChange === true ? ' ⚡ behaviour change' : ''
+  const scope = isInfo(finding) ? ` · info: ${SCOPE_LABELS[finding.scope!]}` : ''
+  return `${SEVERITY_ICONS[finding.severity]} **${finding.id}** ${locationOf(finding)}: ${finding.summary}${behaviour}${scope}`
+}
+
+/** Pre-existing or off-card: real, maybe, but not this PR's to fix. */
+export function isInfo(finding: ReviewFinding): boolean {
+  return finding.scope !== null && INFO_SCOPES.includes(finding.scope)
+}
+
+/** Open, the PR's own, and judged not to change behaviour: safe to fix in one batch without asking. */
+export function isTrivialFix(finding: ReviewFinding): boolean {
+  return finding.status === 'open' && finding.isBehaviourChange === false && !isInfo(finding)
 }
 
 export function locationOf(finding: ReviewFinding): string {
@@ -150,7 +174,8 @@ export function explainPrompt(finding: ReviewFinding): string {
     `> ${finding.summary}`,
     ...(finding.failureScenario === null ? [] : ['>', `> ${finding.failureScenario}`]),
     '',
-    'Read the code around it, then say whether it holds up, what goes wrong and when, and the change you would make. Do not edit anything.',
+    ...(finding.scope === null ? [] : [`Its reviewers judged it ${SCOPE_LABELS[finding.scope]}.`]),
+    'Read the code around it, then say whether it holds up, what goes wrong and when, and the change you would make. Say whether this PR introduced it: compare with the base branch. Do not edit anything.',
   ].join('\n')
 }
 
@@ -169,6 +194,8 @@ export function fixPrompt(kind: FindingsReviewKind, findings: readonly ReviewFin
     ...findings.flatMap(finding => [
       `- ${listLine(finding)}`,
       ...(finding.isBehaviourChange === false ? ['  No behaviour change: callers must see exactly what they see today.'] : []),
+      ...(finding.isBehaviourChange === true ? ['  Changes behaviour: say what callers will see differently.'] : []),
+      ...(isInfo(finding) ? [`  ${SCOPE_LABELS[finding.scope!]}, not from this PR: fix this alone, and nothing next to it.`] : []),
       ...(finding.suggestedFix === null ? [] : [`  Suggested fix (a starting point, not a given): ${finding.suggestedFix}`]),
     ]),
     '',
@@ -190,6 +217,7 @@ export function withCurrentFields(finding: ReviewFinding): ReviewFinding {
     isSuggestingFix: recorded.isSuggestingFix ?? false,
     excerpt: recorded.excerpt ?? null,
     isBehaviourChange: recorded.isBehaviourChange ?? null,
+    scope: recorded.scope ?? null,
   }
 }
 
@@ -198,11 +226,11 @@ export function bySeverity(findings: readonly ReviewFinding[]): ReviewFinding[] 
   return [...findings].sort((left, right) => SEVERITIES.indexOf(left.severity) - SEVERITIES.indexOf(right.severity))
 }
 
-/** The next finding still open after this one, wrapping round; the first open one when none is given. */
+/** The next of the PR's own open findings after this one, wrapping round; the first when none is given. Information is skipped. */
 export function nextOpenAfter(findings: readonly ReviewFinding[], afterId: string | null): ReviewFinding | undefined {
   const start = findings.findIndex(finding => finding.id === afterId) + 1
   const rotated = [...findings.slice(start), ...findings.slice(0, start)]
-  return rotated.find(finding => finding.id !== afterId && finding.status === 'open')
+  return rotated.find(finding => finding.id !== afterId && finding.status === 'open' && !isInfo(finding))
 }
 
 export function findingExcerpt(fileText: string, line: number): CodeExcerpt {
@@ -248,6 +276,11 @@ function severityOf(source: FindingSource, finding: ReportedFinding): FindingSev
   if (HIGH_CATEGORIES.includes(category)) return 'high'
   if (LOW_CATEGORIES.includes(category)) return 'low'
   return 'medium'
+}
+
+function scopeOf(stated: string | undefined): FindingScope | null {
+  const scope = stated?.trim().toLowerCase()
+  return SCOPES.includes(scope as FindingScope) ? (scope as FindingScope) : null
 }
 
 function shortened(summary: string): string {
